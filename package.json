@@ -1,0 +1,23 @@
+{
+  "name": "aives-ai-viva-system",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AIVES – AI Viva Examination System for Universities",
+  "main": "index.html",
+  "scripts": {
+    "start": "serve . -l 3000",
+    "dev": "serve . -l 3000"
+  },
+  "keywords": [
+    "academic",
+    "viva-voce",
+    "oral-examination",
+    "ai-assessment",
+    "university"
+  ],
+  "author": "AIVES Academic Systems",
+  "license": "MIT",
+  "dependencies": {
+    "serve": "^14.2.4"
+  }
+}
