@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIVES – AI Viva Examination System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            primary: {
+              DEFAULT: '#2563EB',
+              hover: '#1D4ED8',
+              light: '#EFF6FF',
+              border: '#BFDBFE',
+            },
+            surface: 'var(--color-surface)',
+            canvas: 'var(--color-canvas)',
+            apptext: 'var(--color-apptext)',
+            mutedtext: 'var(--color-mutedtext)',
+            appborder: 'var(--color-appborder)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --color-surface: #FFFFFF;
+      --color-canvas: #F8FAFC;
+      --color-apptext: #111827;
+      --color-mutedtext: #6B7280;
+      --color-appborder: #E5E7EB;
+      --color-thead: #F1F5F9;
+    }
+    .dark {
+      --color-surface: #1E293B;
+      --color-canvas: #0F172A;
+      --color-apptext: #F8FAFC;
+      --color-mutedtext: #94A3B8;
+      --color-appborder: #334155;
+      --color-thead: #0F172A;
+    }
+    th {
+      background-color: var(--color-thead);
+      color: var(--color-mutedtext);
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--color-canvas);
+      color: var(--color-apptext);
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.2s, color 0.2s;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--color-canvas); }
+    ::-webkit-scrollbar-thumb { background: #94A3B8; border-radius: 3px; }
+    .audio-bar { animation: soundwave 1.2s infinite ease-in-out; }
+    @keyframes soundwave { 0%, 100% { height: 6px; } 50% { height: 26px; } }
+    @keyframes pulseRing { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.15); opacity: 0.3; } 100% { transform: scale(0.95); opacity: 0.8; } }
+    .pulse-ring { animation: pulseRing 2s infinite ease-in-out; }
+  </style>
+</head>
+<body class="bg-canvas text-apptext min-h-screen flex flex-col">
+
+  <!-- ================= AUTHENTICATION / LOGIN VIEW ================= -->
+  <div id="loginView" class="min-h-screen flex flex-col bg-canvas text-apptext hidden">
+    <!-- Sticky Login Header - Always visible when scrolling -->
+    <header class="sticky top-0 z-50 bg-surface/95 backdrop-blur-md border-b border-appborder px-4 sm:px-8 py-2.5 shadow-2xs">
+      <div class="max-w-5xl w-full mx-auto flex items-center justify-between">
+        <div class="flex items-center space-x-2 text-primary font-bold text-base">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5z"/></svg>
+          <span>AIVES</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="toggleLang()" class="h-9 px-3 rounded-lg border border-appborder bg-surface text-xs font-semibold">
+            <span id="loginLangBtn">English</span>
+          </button>
+          <button onclick="toggleTheme()" class="w-9 h-9 rounded-lg border border-appborder bg-surface flex items-center justify-center">
+            <span id="loginThemeIcon">🌙</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="flex-1 flex flex-col justify-center items-center p-6 py-8">
+      <div class="max-w-md w-full mx-auto">
+        <div class="bg-surface rounded-2xl border border-appborder p-8 shadow-md space-y-6">
+        <div class="text-center space-y-2">
+          <div class="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/40 text-primary flex items-center justify-center mx-auto">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5z"/></svg>
+          </div>
+          <h1 id="lblLoginWelcome" class="text-2xl font-bold text-apptext">Đăng nhập vào AIVES</h1>
+          <p id="lblLoginDesc" class="text-xs text-mutedtext">Cổng Thi Vấn Đáp & Đánh Giá Học Thuật Đại Học</p>
+        </div>
+
+        <!-- Google / Gmail SSO Button -->
+        <button onclick="promptGoogleLogin()" class="w-full h-11 px-4 rounded-xl border border-appborder bg-surface hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-apptext flex items-center justify-center space-x-3 transition-all shadow-xs hover:border-primary/60">
+          <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+          </svg>
+          <span id="lblGoogleLoginBtn">Đăng nhập bằng tài khoản Google / Gmail (@fpt.edu.vn)</span>
+        </button>
+
+        <div class="space-y-2">
+          <div id="lblQuickLogin" class="text-xs font-semibold uppercase tracking-wider text-mutedtext text-center">Hoặc đăng nhập nhanh 1 chạm theo vai trò:</div>
+          <button onclick="doLogin('lecturer', 'TS. Hoàng Văn Thụ')" class="w-full p-3 rounded-xl border border-appborder hover:border-primary bg-canvas hover:bg-primary-light/40 flex items-center space-x-3 text-left transition-all">
+            <div class="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/50 text-primary flex items-center justify-center font-bold text-xs">GV</div>
+            <div>
+              <div class="text-xs font-bold text-apptext" id="btnRoleLecturerLogin">Giảng Viên (TS. Hoàng Văn Thụ)</div>
+              <div class="text-[11px] text-mutedtext">Bộ môn Kỹ thuật Phần mềm - ĐH FPT</div>
+            </div>
+          </button>
+          <button onclick="doLogin('student', 'Nguyễn Hoàng Nam')" class="w-full p-3 rounded-xl border border-appborder hover:border-primary bg-canvas hover:bg-primary-light/40 flex items-center space-x-3 text-left transition-all">
+            <div class="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 flex items-center justify-center font-bold text-xs">SV</div>
+            <div>
+              <div class="text-xs font-bold text-apptext" id="btnRoleStudentLogin">Sinh Viên (Nguyễn Hoàng Nam - SE184920)</div>
+              <div class="text-[11px] text-mutedtext">Thí sinh thi viva SWD392 ĐH FPT</div>
+            </div>
+          </button>
+          <button onclick="doLogin('admin', 'Marcus Vance')" class="w-full p-3 rounded-xl border border-appborder hover:border-primary bg-canvas hover:bg-primary-light/40 flex items-center space-x-3 text-left transition-all">
+            <div class="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-700 flex items-center justify-center font-bold text-xs">AD</div>
+            <div>
+              <div class="text-xs font-bold text-apptext" id="btnRoleAdminLogin">Quản Trị Viên (Marcus Vance)</div>
+              <div class="text-[11px] text-mutedtext">Phòng Khảo thí & ĐBCL - ĐH FPT</div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="text-center text-xs text-mutedtext py-2">Faculty of Computing &bull; Human-in-the-Loop Active</div>
+  </div>
+
+  <!-- ================= TOP MAIN APP NAVBAR ================= -->
+  <header id="mainAppHeader" class="bg-surface border-b border-appborder sticky top-0 z-50 px-4 py-2.5 flex flex-wrap items-center justify-between text-xs">
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-1.5 font-bold text-sm tracking-tight text-primary">
+        <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5z"/></svg>
+        <span>AIVES</span>
+      </div>
+      <span class="text-mutedtext/40 hidden sm:inline">|</span>
+      <span class="text-mutedtext font-medium hidden md:inline" id="lblAppSubtitle">Hệ Thống Thi Vấn Đáp Trực Tuyến AI</span>
+    </div>
+
+    <!-- Current Role Indicator Badge -->
+    <div class="flex items-center space-x-2 my-1 sm:my-0">
+      <span id="lblCurrentRoleBadge" class="px-2.5 py-1 rounded-full text-xs font-semibold border bg-blue-50 dark:bg-blue-950/50 text-primary border-blue-200 dark:border-blue-800">
+        Giảng viên
+      </span>
+    </div>
+
+    <div class="flex items-center space-x-2 text-xs">
+      <!-- Lang Toggle -->
+      <button onclick="toggleLang()" class="h-8 px-2.5 rounded-lg border border-appborder bg-surface text-xs font-semibold text-apptext hover:bg-slate-100 dark:hover:bg-slate-800">
+        <span id="navLangBtn">EN</span>
+      </button>
+      <!-- Theme Toggle -->
+      <button onclick="toggleTheme()" class="w-8 h-8 rounded-lg border border-appborder bg-surface flex items-center justify-center text-apptext hover:bg-slate-100 dark:hover:bg-slate-800">
+        <span id="navThemeIcon">🌙</span>
+      </button>
+      <!-- Log Out -->
+      <button onclick="logoutAction()" class="h-8 px-2.5 rounded-lg border border-appborder bg-surface text-mutedtext hover:text-red-600 ml-1">
+        <span id="lblLogout">Đăng xuất</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= APP WORKSPACE ================= -->
+  <div id="mainWorkspace" class="flex-1 flex flex-col">
+    <div id="desktopWorkspace" class="flex-1 flex">
+      <!-- SIDEBAR -->
+      <aside class="w-[230px] shrink-0 bg-surface border-r border-appborder flex flex-col justify-between min-h-[calc(100vh-48px)]">
+        <div>
+          <div class="px-5 py-4 border-b border-appborder/60">
+            <div id="sidebarOrgLabel" class="text-xs uppercase tracking-wider font-semibold text-mutedtext">Khoa Công Nghệ Thông Tin</div>
+            <div id="sidebarRoleLabel" class="text-sm font-semibold text-apptext mt-0.5">Cổng Giảng Viên Vấn Đáp</div>
+          </div>
+
+          <nav id="navAdmin" class="p-3 space-y-1 hidden">
+            <button onclick="navigateAdmin('admin-dashboard')" id="nav-admin-dashboard" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-primary bg-blue-50 dark:bg-blue-950/40 font-semibold"><span>Dashboard</span></button>
+            <button onclick="navigateAdmin('admin-users')" id="nav-admin-users" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Users & Roles</span></button>
+            <button onclick="navigateAdmin('admin-courses')" id="nav-admin-courses" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Courses</span></button>
+            <button onclick="navigateAdmin('admin-settings')" id="nav-admin-settings" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Exam Settings</span></button>
+            <button onclick="navigateAdmin('admin-questionbank')" id="nav-admin-questionbank" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Question Bank</span></button>
+            <button onclick="navigateAdmin('admin-sessions')" id="nav-admin-sessions" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Exam Sessions</span></button>
+          </nav>
+
+          <nav id="navLecturer" class="p-3 space-y-1">
+            <button onclick="navigateLecturer('lecturer-dashboard')" id="nav-lecturer-dashboard" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-primary bg-blue-50 dark:bg-blue-950/40 font-semibold"><span>Bảng điều khiển</span></button>
+            <div class="pt-3 pb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-mutedtext">Quy trình 1: Nội dung</div>
+            <button onclick="navigateLecturer('lecturer-materials')" id="nav-lecturer-materials" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Tài liệu học tập</span></button>
+            <button onclick="navigateLecturer('lecturer-questionbank')" id="nav-lecturer-questionbank" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Ngân hàng câu hỏi</span></button>
+            <button onclick="navigateLecturer('lecturer-rubric')" id="nav-lecturer-rubric" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Tiêu chí Rubric</span></button>
+            <div class="pt-3 pb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-mutedtext">Quy trình 2: Ca thi</div>
+            <button onclick="navigateLecturer('lecturer-sessions')" id="nav-lecturer-sessions" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Ca thi vấn đáp</span></button>
+            <button onclick="navigateLecturer('lecturer-monitor')" id="nav-lecturer-monitor" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Giám sát ca thi</span></button>
+            <div class="pt-3 pb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-mutedtext">Quy trình 3: Đánh giá</div>
+            <button onclick="navigateLecturer('lecturer-scoring')" id="nav-lecturer-scoring" class="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-mutedtext hover:text-apptext"><span>Biên bản & Chấm điểm</span></button>
+          </nav>
+        </div>
+
+        <div class="p-4 border-t border-appborder bg-canvas text-[11px] text-mutedtext">
+          <div class="font-semibold text-apptext">Human-in-the-Loop Active</div>
+          <div class="text-[10px] mt-0.5">AI đề xuất; Giảng viên quyết định cuối cùng.</div>
+        </div>
+      </aside>
+
+      <!-- CONTENT -->
+      <main class="flex-1 bg-canvas p-6 md:p-8 overflow-y-auto max-w-[1400px]">
+        <!-- Dashboard -->
+        <section id="view-lecturer-dashboard" class="space-y-6">
+          <div class="flex justify-between items-center">
+            <div>
+              <h1 class="text-2xl md:text-3xl font-bold text-apptext">Bảng Điều Khiển Giảng Viên</h1>
+              <p class="text-sm text-mutedtext mt-1">Review urgent viva work, pending questions, and transcripts.</p>
+            </div>
+            <button onclick="navigateLecturer('lecturer-sessions')" class="h-10 px-4 rounded-lg bg-primary text-white text-sm font-medium shadow-xs">+ Tạo ca thi mới</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-surface p-5 rounded-xl border border-appborder shadow-xs space-y-2">
+              <span class="text-xs font-semibold uppercase tracking-wider text-amber-700 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded">Cần xử lý</span>
+              <h3 class="text-base font-semibold text-apptext">Duyệt câu hỏi AI tạo</h3>
+              <p class="text-xs text-mutedtext">2 câu hỏi mới từ bài giảng Concurrency cần bạn rà soát và phê duyệt.</p>
+              <button onclick="navigateLecturer('lecturer-materials')" class="text-xs font-semibold text-primary hover:underline block pt-2">Xem câu hỏi &rarr;</button>
+            </div>
+            <div class="bg-surface p-5 rounded-xl border border-appborder shadow-xs space-y-2">
+              <span class="text-xs font-semibold uppercase tracking-wider text-blue-700 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded">Ca thi đang mở</span>
+              <h3 class="text-base font-semibold text-apptext">CS301 Viva - Nhóm A</h3>
+              <p class="text-xs text-mutedtext">Ca thi đang chạy: 1 đang thi, 1 hoàn thành, 1 đang chờ.</p>
+              <button onclick="navigateLecturer('lecturer-monitor')" class="text-xs font-semibold text-primary hover:underline block pt-2">Mở giám sát &rarr;</button>
+            </div>
+            <div class="bg-surface p-5 rounded-xl border border-appborder shadow-xs space-y-2">
+              <span class="text-xs font-semibold uppercase tracking-wider text-purple-700 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 rounded">Chờ chốt điểm</span>
+              <h3 class="text-base font-semibold text-apptext">Biên bản chờ chấm</h3>
+              <p class="text-xs text-mutedtext">AI gợi ý điểm 8.5/10. Giảng viên cần kiểm tra và chốt điểm chính thức.</p>
+              <button onclick="navigateLecturer('lecturer-scoring')" class="text-xs font-semibold text-primary hover:underline block pt-2">Chấm điểm &rarr;</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Materials -->
+        <section id="view-lecturer-materials" class="space-y-6 hidden">
+          <div class="flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-apptext">Tài Liệu Học Tập</h1>
+            <button onclick="document.getElementById('protoFileInput').click()" class="h-9 px-4 rounded-lg bg-primary text-white text-xs font-semibold flex items-center space-x-1 shadow-xs">
+              <span>+ Tải lên tệp tài liệu (Add File)</span>
+            </button>
+          </div>
+
+          <!-- File Upload Box -->
+          <div class="p-6 border-2 border-dashed border-appborder hover:border-primary/60 rounded-xl text-center bg-canvas transition-colors">
+            <input type="file" id="protoFileInput" onchange="protoFileChosen(event)" class="hidden" accept=".pdf,.doc,.docx,.ppt,.pptx,.txt" />
+            <div class="space-y-2">
+              <div class="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/40 text-primary flex items-center justify-center mx-auto font-bold text-lg">📁</div>
+              <div class="text-sm font-semibold text-apptext">Kéo thả tài liệu giáo trình vào đây hoặc bấm để chọn tệp từ máy</div>
+              <div class="text-xs text-mutedtext">Hỗ trợ PDF, DOCX, PPTX lên tới 50MB</div>
+              <div id="protoFileChosenName" class="text-xs font-mono font-medium text-emerald-600 dark:text-emerald-400 mt-2"></div>
+            </div>
+          </div>
+
+          <div class="bg-surface rounded-xl border border-appborder p-5 space-y-3">
+            <div class="flex justify-between items-center mb-2">
+              <span class="font-medium text-apptext">SWD392_Ch04_Microservices_Clean_Architecture.pdf (3.4 MB)</span>
+              <button onclick="triggerSimGen()" class="h-8 px-3 rounded-md bg-primary text-white text-xs font-medium">Tạo câu hỏi AI</button>
+            </div>
+            <div id="simProcBox" class="p-6 text-center text-xs text-mutedtext border border-blue-200 dark:border-blue-800 rounded-lg hidden">
+              Đang xử lý tài liệu… AI Service đang phân tích và tạo câu hỏi...
+            </div>
+            <div id="simDraftBox" class="p-4 bg-canvas border border-appborder rounded-lg space-y-3 hidden">
+              <div class="flex justify-between text-xs font-bold text-amber-700"><span>Câu hỏi AI Đề Xuất (Cần GV duyệt)</span></div>
+              <p class="text-sm font-medium">"Phân tích sự khác biệt cốt lõi giữa Kiến trúc Đơn khối (Monolithic) và Vi dịch vụ (Microservices)..."</p>
+              <button onclick="alert('Đã duyệt câu hỏi và thêm vào Ngân hàng!')" class="h-8 px-3 bg-emerald-600 text-white rounded text-xs font-medium">Duyệt & Lưu vào ngân hàng</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Scoring -->
+        <section id="view-lecturer-scoring" class="space-y-6 hidden">
+          <div class="flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-apptext">Biên Bản & Chấm Điểm (Human-in-the-Loop)</h1>
+            <span class="text-xs text-mutedtext">Ca thi: SWD392 Oral Viva</span>
+          </div>
+
+          <!-- Student Roster Quick Selector -->
+          <div class="bg-surface p-4 rounded-xl border border-appborder space-y-3">
+            <div class="text-xs font-bold text-apptext uppercase tracking-wider">Danh Sách Thí Sinh Chờ Chấm Điểm (3 Thí sinh):</div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button onclick="selectProtoStudent(1)" id="protoStuTab1" class="p-3 rounded-lg border text-left bg-blue-50/60 dark:bg-blue-950/40 border-primary text-xs space-y-1">
+                <div class="font-bold text-primary">Nguyễn Hoàng Nam (SE184920)</div>
+                <div class="text-[11px] text-emerald-600 font-semibold">Đã khóa điểm: 9.2 / 10.0</div>
+              </button>
+              <button onclick="selectProtoStudent(2)" id="protoStuTab2" class="p-3 rounded-lg border text-left bg-canvas border-appborder text-xs space-y-1 hover:border-primary">
+                <div class="font-bold text-apptext">Lê Tuấn Anh (SE180123)</div>
+                <div class="text-[11px] text-amber-600 font-semibold">Chờ duyệt &bull; AI gợi ý: 8.6 / 10.0</div>
+              </button>
+              <button onclick="selectProtoStudent(3)" id="protoStuTab3" class="p-3 rounded-lg border text-left bg-canvas border-appborder text-xs space-y-1 hover:border-primary">
+                <div class="font-bold text-apptext">Trần Mai Linh (IA180456)</div>
+                <div class="text-[11px] text-emerald-600 font-semibold">Đã khóa điểm: 9.5 / 10.0</div>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-7 bg-surface p-5 rounded-xl border border-appborder space-y-4">
+              <h3 id="protoScoringStudentName" class="font-semibold text-sm">Thí sinh: Nguyễn Hoàng Nam (SE184920) - SWD392</h3>
+              <div id="protoScoringTranscript" class="p-3 bg-canvas rounded border border-appborder text-xs leading-relaxed font-mono">
+                "Kiến trúc Monolith đóng gói chức năng vào 1 khối... Microservices chia nhỏ dịch vụ theo Bounded Context, giao tiếp qua Message Broker Kafka."
+              </div>
+              <div id="protoScoringFollowUp" class="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded text-xs">
+                <strong>Câu hỏi phụ AI đưa ra:</strong> "Làm thế nào để đảm bảo Data Consistency giữa các Microservices?"<br>
+                <strong>Sinh viên trả lời:</strong> "Sử dụng Eventual Consistency, Saga Pattern và Outbox Pattern kết hợp Compensating Transactions."
+              </div>
+            </div>
+            <div class="lg:col-span-5 bg-surface p-5 rounded-xl border-2 border-primary space-y-4">
+              <div class="flex justify-between items-center">
+                <span id="protoAiSuggestedScore" class="text-xs font-bold text-primary">Điểm AI Đề Xuất: 9.2 / 10.0</span>
+                <span class="text-[10px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">Gợi ý tham khảo</span>
+              </div>
+              <div>
+                <label class="block text-xs font-medium mb-1">Điểm chính thức của Giảng viên:</label>
+                <input id="scoreInputVal" type="number" step="0.1" value="9.2" class="w-24 h-10 px-2 font-bold border rounded bg-canvas text-center">
+              </div>
+              <button onclick="finalizeDemoScore()" id="btnFinalDemo" class="w-full h-10 bg-primary hover:bg-primary-hover text-white rounded font-semibold text-xs">Khóa Điểm Chính Thức</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Monitor -->
+        <section id="view-lecturer-monitor" class="space-y-6 hidden">
+          <h1 class="text-2xl font-bold text-apptext">Giám Sát Ca Thi Trực Tuyến</h1>
+          <div class="bg-surface rounded-xl border border-appborder p-5 space-y-3">
+            <div class="flex justify-between items-center text-sm border-b pb-3">
+              <div>
+                <span class="font-bold">Nguyễn Hoàng Nam (SE184920)</span>
+                <div class="text-xs text-mutedtext">Môn: SWD392 &bull; Đang thi câu 1 (Đang hỏi phụ)</div>
+              </div>
+              <span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-semibold">Đang thi</span>
+              <button onclick="openLiveMonitorModal()" class="text-xs font-semibold text-primary hover:underline">Xem màn hình thi ↗</button>
+            </div>
+            <div class="flex justify-between items-center text-sm pt-1">
+              <div>
+                <span class="font-bold">Lê Tuấn Anh (SE180123)</span>
+                <div class="text-xs text-mutedtext">Môn: SWD392 &bull; Đã hoàn thành 2/2 câu viva</div>
+              </div>
+              <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs font-semibold">Đã xong</span>
+              <button onclick="navigateLecturer('lecturer-scoring')" class="text-xs font-semibold text-emerald-700 hover:underline">Xem biên bản thi</button>
+            </div>
+          </div>
+
+          <!-- Live Proctor Modal for Prototype -->
+          <div id="protoLiveModal" class="p-5 bg-slate-900 text-white rounded-2xl border border-slate-800 space-y-4 hidden">
+            <div class="flex justify-between items-center text-xs border-b border-slate-800 pb-2">
+              <span class="text-red-400 font-bold">🔴 LIVE PROCTORING STREAM: Nguyễn Hoàng Nam (SE184920)</span>
+              <button onclick="closeLiveMonitorModal()" class="px-2 py-1 bg-slate-800 rounded text-xs text-slate-300">Đóng màn hình giám sát</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 flex flex-col items-center justify-center aspect-video">
+                <div class="w-20 h-20 rounded-full bg-slate-800 border-2 border-emerald-400 flex items-center justify-center text-xl font-bold">NHN</div>
+                <div class="text-emerald-400 mt-2 font-semibold">AI Face Verification: Verified</div>
+                <div class="text-slate-400 text-[11px] mt-1">Microphone Active (STT Live Stream)</div>
+              </div>
+              <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                <div class="text-slate-400 uppercase font-semibold">Live Speech-to-Text Stream:</div>
+                <p class="font-mono text-slate-200 leading-relaxed text-[11px]">
+                  "...Dạ trong Microservices ta sử dụng mô hình Tính nhất quán sau cùng (Eventual Consistency) và triển khai Saga Pattern kết hợp Outbox Pattern với Kafka..."
+                </p>
+                <div class="pt-2 text-emerald-400 font-semibold">Độ trùng khớp từ khóa chuẩn: 94%</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- STUDENT EXAM SCREEN -->
+    <div id="studentWorkspace" class="flex-1 flex flex-col justify-between max-w-[720px] mx-auto w-full px-4 py-8 hidden">
+      <div class="flex justify-between items-center pb-4 border-b border-appborder text-xs">
+        <span class="font-bold text-primary">AIVES Oral Viva</span>
+        <span>SWD392 - Kiến Trúc Phần Mềm (ĐH FPT)</span>
+        <span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-semibold">Câu 1 / 2</span>
+      </div>
+      <div class="my-auto py-8 space-y-6">
+        <div class="bg-surface p-8 rounded-2xl border border-appborder shadow-xs space-y-4">
+          <h2 class="text-xl font-bold text-apptext leading-snug" id="txtStudentQ">
+            "Hãy phân tích sự khác biệt cốt lõi giữa Kiến trúc Đơn khối (Monolithic) và Vi dịch vụ (Microservices). Khi nào hệ thống phần mềm nên tách microservices?"
+          </h2>
+          <button onclick="speakDemoQ()" class="h-10 px-4 bg-blue-50 dark:bg-blue-950/40 text-primary border border-blue-200 dark:border-blue-800 rounded-lg text-xs font-semibold flex items-center space-x-2">
+            <span>🔊 Nghe câu hỏi thi (TTS)</span>
+          </button>
+        </div>
+        <div class="bg-surface p-8 rounded-2xl border border-appborder text-center space-y-4">
+          <button id="btnStudMic" onclick="toggleStudMic()" class="w-20 h-20 rounded-full bg-primary text-white flex items-center justify-center mx-auto shadow-lg text-2xl">
+            🎙️
+          </button>
+          <div id="lblStudMicStatus" class="text-xs text-mutedtext">Bấm vào microphone để nói câu trả lời của bạn.</div>
+          <div id="txtStudTranscript" class="p-3 bg-canvas rounded text-xs italic hidden">"Deadlock xảy ra khi..."</div>
+          <button id="btnStudSubmit" onclick="submitStudAnswer()" class="h-10 px-6 bg-primary text-white rounded-lg text-xs font-semibold hidden">Nộp bài &rarr;</button>
+        </div>
+      </div>
+      <div class="text-center text-xs text-mutedtext">Phòng thi vấn đáp trực tuyến AIVES</div>
+    </div>
+  </div>
+
+  <script>
+    let appLang = 'vi';
+    let appTheme = 'light';
+    let appRole = 'lecturer';
+
+    function toggleTheme() {
+      appTheme = appTheme === 'light' ? 'dark' : 'light';
+      if (appTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.getElementById('navThemeIcon').innerText = '☀️';
+        document.getElementById('loginThemeIcon').innerText = '☀️';
+      } else {
+        document.documentElement.classList.remove('dark');
+        document.getElementById('navThemeIcon').innerText = '🌙';
+        document.getElementById('loginThemeIcon').innerText = '🌙';
+      }
+    }
+
+    function toggleLang() {
+      appLang = appLang === 'vi' ? 'en' : 'vi';
+      document.getElementById('navLangBtn').innerText = appLang === 'vi' ? 'EN' : 'VI';
+      document.getElementById('loginLangBtn').innerText = appLang === 'vi' ? 'English' : 'Tiếng Việt';
+      alert('Đã chuyển ngôn ngữ sang: ' + (appLang === 'vi' ? 'Tiếng Việt' : 'English'));
+    }
+
+    function promptGoogleLogin() {
+      // Đăng nhập trực tiếp bằng tài khoản Google FPT đã được phân quyền cố định
+      doLogin("student", "Nguyễn Hoàng Nam (SE184920)");
+    }
+
+    function doLogin(role, name) {
+      document.getElementById('loginView').classList.add('hidden');
+      document.getElementById('mainWorkspace').classList.remove('hidden');
+      document.getElementById('mainAppHeader').classList.remove('hidden');
+      setRole(role);
+    }
+
+    function logoutAction() {
+      document.getElementById('mainWorkspace').classList.add('hidden');
+      document.getElementById('mainAppHeader').classList.add('hidden');
+      document.getElementById('loginView').classList.remove('hidden');
+    }
+
+    function setRole(role) {
+      appRole = role;
+      const badge = document.getElementById('lblCurrentRoleBadge');
+      if (badge) {
+        if (role === 'admin') {
+          badge.innerText = appLang === 'vi' ? 'Quản trị viên' : 'Admin';
+          badge.className = 'px-2.5 py-1 rounded-full text-xs font-semibold border bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+        } else if (role === 'lecturer') {
+          badge.innerText = appLang === 'vi' ? 'Giảng viên' : 'Lecturer';
+          badge.className = 'px-2.5 py-1 rounded-full text-xs font-semibold border bg-blue-50 dark:bg-blue-950/50 text-primary border-blue-200 dark:border-blue-800';
+        } else {
+          badge.innerText = appLang === 'vi' ? 'Sinh viên' : 'Student';
+          badge.className = 'px-2.5 py-1 rounded-full text-xs font-semibold border bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+        }
+      }
+      
+      const desktop = document.getElementById('desktopWorkspace');
+      const student = document.getElementById('studentWorkspace');
+
+      if (role === 'student') {
+        desktop.classList.add('hidden');
+        student.classList.remove('hidden');
+      } else {
+        student.classList.add('hidden');
+        desktop.classList.remove('hidden');
+        if (role === 'admin') {
+          document.getElementById('navAdmin').classList.remove('hidden');
+          document.getElementById('navLecturer').classList.add('hidden');
+        } else {
+          document.getElementById('navAdmin').classList.add('hidden');
+          document.getElementById('navLecturer').classList.remove('hidden');
+          navigateLecturer('lecturer-dashboard');
+        }
+      }
+    }
+
+    function navigateLecturer(viewId) {
+      ['view-lecturer-dashboard', 'view-lecturer-materials', 'view-lecturer-scoring', 'view-lecturer-monitor'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+      const target = document.getElementById('view-' + viewId);
+      if (target) target.classList.remove('hidden');
+    }
+
+    function triggerSimGen() {
+      document.getElementById('simProcBox').classList.remove('hidden');
+      setTimeout(() => {
+        document.getElementById('simProcBox').classList.add('hidden');
+        document.getElementById('simDraftBox').classList.remove('hidden');
+      }, 1200);
+    }
+
+    function selectProtoStudent(id) {
+      [1, 2, 3].forEach(i => {
+        const el = document.getElementById('protoStuTab' + i);
+        if (el) el.className = (i === id)
+          ? 'p-3 rounded-lg border text-left bg-blue-50/60 dark:bg-blue-950/40 border-primary text-xs space-y-1 ring-1 ring-primary'
+          : 'p-3 rounded-lg border text-left bg-canvas border-appborder text-xs space-y-1 hover:border-primary';
+      });
+
+      const title = document.getElementById('protoScoringStudentName');
+      const transcript = document.getElementById('protoScoringTranscript');
+      const followUp = document.getElementById('protoScoringFollowUp');
+      const aiScore = document.getElementById('protoAiSuggestedScore');
+      const scoreInput = document.getElementById('scoreInputVal');
+
+      if (id === 1) {
+        if (title) title.innerText = 'Thí sinh: Nguyễn Hoàng Nam (SE184920) - SWD392';
+        if (transcript) transcript.innerText = '"Kiến trúc Monolith đóng gói chức năng vào 1 khối... Microservices chia nhỏ dịch vụ theo Bounded Context, giao tiếp qua Message Broker Kafka."';
+        if (followUp) followUp.innerHTML = '<strong>Câu hỏi phụ AI đưa ra:</strong> "Làm thế nào để đảm bảo Data Consistency giữa các Microservices?"<br><strong>Sinh viên trả lời:</strong> "Sử dụng Eventual Consistency, Saga Pattern và Outbox Pattern kết hợp Compensating Transactions."';
+        if (aiScore) aiScore.innerText = 'Điểm AI Đề Xuất: 9.2 / 10.0';
+        if (scoreInput) scoreInput.value = '9.2';
+      } else if (id === 2) {
+        if (title) title.innerText = 'Thí sinh: Lê Tuấn Anh (SE180123) - SWD392';
+        if (transcript) transcript.innerText = '"DIP là nguyên lý phát biểu rằng các module cấp cao không nên phụ thuộc vào module cấp thấp, cả hai nên phụ thuộc vào Abstraction. DI là kỹ thuật tiêm phụ thuộc qua Constructor."';
+        if (followUp) followUp.innerHTML = '<strong>Câu hỏi phụ AI đưa ra:</strong> "Tại sao trong Clean Architecture, Application Core không được import trực tiếp EF Core?"<br><strong>Sinh viên trả lời:</strong> "Vì Application Core chỉ khai báo Interface Repository, còn Infrastructure mới implement bằng EF Core."';
+        if (aiScore) aiScore.innerText = 'Điểm AI Đề Xuất: 8.6 / 10.0';
+        if (scoreInput) scoreInput.value = '8.8';
+      } else if (id === 3) {
+        if (title) title.innerText = 'Thí sinh: Trần Mai Linh (IA180456) - SWD392';
+        if (transcript) transcript.innerText = '"Hệ thống dùng Authorization Server cấp Access Token ngắn hạn và Refresh Token. API Gateway đóng vai trò Reverse Proxy xác thực chữ ký RSA của JWT mà không cần gọi database."';
+        if (followUp) followUp.innerHTML = '<strong>Câu hỏi phụ AI đưa ra:</strong> "Nếu kiểm tra Blacklist trên Redis thì API Gateway có còn giữ được ưu điểm stateless không?"<br><strong>Sinh viên trả lời:</strong> "Sẽ có overhead nhỏ của Redis, nhưng độ trễ ở mức microsecond hoặc ta có thể giảm TTL Access Token xuống còn 5 phút."';
+        if (aiScore) aiScore.innerText = 'Điểm AI Đề Xuất: 9.6 / 10.0';
+        if (scoreInput) scoreInput.value = '9.5';
+      }
+    }
+
+    function finalizeDemoScore() {
+      const b = document.getElementById('btnFinalDemo');
+      b.className = 'w-full h-10 bg-emerald-600 text-white rounded font-semibold text-xs';
+      b.innerText = 'Đã Khóa Điểm Chính Thức (8.5/10.0)';
+      b.disabled = true;
+      alert('Điểm đã được Giảng viên khóa chính thức.');
+    }
+
+    function speakDemoQ() {
+      if ('speechSynthesis' in window) {
+        const u = new SpeechSynthesisUtterance(document.getElementById('txtStudentQ').innerText);
+        u.lang = 'vi-VN';
+        window.speechSynthesis.speak(u);
+      }
+    }
+
+    let isRecording = false;
+    function toggleStudMic() {
+      isRecording = !isRecording;
+      const btn = document.getElementById('btnStudMic');
+      const lbl = document.getElementById('lblStudMicStatus');
+      const box = document.getElementById('txtStudTranscript');
+      const sub = document.getElementById('btnStudSubmit');
+
+      if (isRecording) {
+        btn.className = 'w-20 h-20 rounded-full bg-red-600 text-white flex items-center justify-center mx-auto shadow-lg text-2xl animate-pulse';
+        lbl.innerText = 'Đang ghi âm câu trả lời của bạn...';
+      } else {
+        btn.className = 'w-20 h-20 rounded-full bg-slate-700 text-white flex items-center justify-center mx-auto shadow-lg text-2xl';
+        lbl.innerText = 'Đã hoàn thành ghi âm. Hãy kiểm tra lại và bấm Nộp bài.';
+        box.classList.remove('hidden');
+        sub.classList.remove('hidden');
+      }
+    }
+
+    function submitStudAnswer() {
+      alert('AI Service đã phân tích câu trả lời và chuyển dữ liệu sang biên bản chấm điểm của Giảng viên.');
+      setRole('lecturer');
+      navigateLecturer('lecturer-scoring');
+    }
+
+    function protoFileChosen(e) {
+      if (e.target.files && e.target.files[0]) {
+        const f = e.target.files[0];
+        const sz = (f.size / (1024 * 1024)).toFixed(1);
+        document.getElementById('protoFileChosenName').innerText = `✓ Đã nạp tệp: ${f.name} (${sz} MB) - Sẵn sàng cho AI trích xuất câu hỏi.`;
+      }
+    }
+
+    function openLiveMonitorModal() {
+      document.getElementById('protoLiveModal').classList.remove('hidden');
+    }
+
+    function closeLiveMonitorModal() {
+      document.getElementById('protoLiveModal').classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
