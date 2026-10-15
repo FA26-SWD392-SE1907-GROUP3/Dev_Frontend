@@ -18,9 +18,11 @@ export default function Sidebar({ currentRole, activeTab, setActiveTab, t }) {
     { id: 'admin-dashboard', label: t.navDashboard, icon: LayoutDashboard },
     { id: 'admin-users', label: t.navUsers, icon: Users },
     { id: 'admin-courses', label: t.navCourses, icon: BookOpen },
-    { id: 'admin-settings', label: t.navSettings, icon: Settings },
+    { id: 'admin-materials', label: t.navMaterials, icon: FileText },
     { id: 'admin-questionbank', label: t.navQuestionBank, icon: HelpCircle },
     { id: 'admin-sessions', label: t.navSessions, icon: CalendarDays },
+    { id: 'admin-rubric', label: t.navRubric, icon: BookmarkCheck },
+    { id: 'admin-monitor', label: t.navMonitor, icon: Tv },
   ];
 
   const lecturerMenuItems = [
@@ -30,13 +32,12 @@ export default function Sidebar({ currentRole, activeTab, setActiveTab, t }) {
     { id: 'lecturer-rubric', label: t.navRubric, icon: BookmarkCheck },
     { id: 'lecturer-sessions', label: t.navSessions, icon: CalendarDays, section: t.sectionSessions },
     { id: 'lecturer-monitor', label: t.navMonitor, icon: Tv },
-    { id: 'lecturer-scoring', label: t.navScoring, icon: CheckCircle2, section: t.sectionEvaluation },
   ];
 
   const items = currentRole === 'admin' ? adminMenuItems : lecturerMenuItems;
 
   return (
-    <aside className="w-[230px] shrink-0 bg-surface border-r border-appborder flex flex-col justify-between min-h-[calc(100vh-48px)] transition-colors duration-200">
+    <aside className="app-sidebar w-[230px] shrink-0 bg-surface border-r border-appborder flex flex-col justify-between min-h-[calc(100vh-48px)] transition-colors duration-200">
       <div>
         {/* Workspace Title Header */}
         <div className="px-5 py-4 border-b border-appborder/60">

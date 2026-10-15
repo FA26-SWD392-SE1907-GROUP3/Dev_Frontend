@@ -9,6 +9,7 @@ export default defineConfig({
   ],
   server: {
     port: 3000,
-    open: false
+    open: false,
+    proxy: { '/api': { target: process.env.API_PROXY_TARGET || 'http://localhost:8080', changeOrigin: true } }
   }
 })

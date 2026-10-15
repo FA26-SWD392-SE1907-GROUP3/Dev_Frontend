@@ -12,6 +12,9 @@ node_modules/
 # Production build output
 dist/
 dist-ssr/
+test-results/
+playwright-report/
+.npm-cache/
 
 # Environment variables
 .env

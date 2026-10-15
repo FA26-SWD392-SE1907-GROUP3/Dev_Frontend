@@ -3,7 +3,7 @@ import { GraduationCap, Sun, Moon, Globe, LogOut } from 'lucide-react';
 
 export default function Navbar({
   currentRole,
-  setRole,
+
   currentUser,
   onLogout,
   lang,
@@ -15,11 +15,11 @@ export default function Navbar({
   const getRoleDisplayName = () => {
     switch (currentRole) {
       case 'admin':
-        return `${t.adminPortal} (${currentUser?.name || 'Marcus Vance'})`;
+        return `${t.adminPortal} (${currentUser?.name || 'Người dùng'})`;
       case 'lecturer':
-        return `${t.lecturerPortal} (${currentUser?.name || 'TS. Hoàng Văn Thụ'})`;
+        return `${t.lecturerPortal} (${currentUser?.name || 'Người dùng'})`;
       case 'student':
-        return `${t.studentPortal} (${currentUser?.name || 'Nguyễn Hoàng Nam'})`;
+        return `${t.studentPortal} (${currentUser?.name || 'Người dùng'})`;
       default:
         return '';
     }
@@ -92,7 +92,7 @@ export default function Navbar({
         <button
           onClick={onLogout}
           className="h-8 px-2.5 rounded-lg border border-appborder bg-surface hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 text-mutedtext transition-colors flex items-center space-x-1"
-          title={t.signOut}
+          title={t.signOut} aria-label="Đăng xuất"
         >
           <LogOut className="w-3.5 h-3.5" />
           <span className="hidden md:inline">{t.signOut}</span>
