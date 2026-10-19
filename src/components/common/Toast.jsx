@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Info, AlertTriangle } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 
 export default function Toast({ toast, onClose }) {
   if (!toast) return null;

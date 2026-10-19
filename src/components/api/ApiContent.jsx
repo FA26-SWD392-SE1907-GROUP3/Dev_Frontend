@@ -1,40 +1,35 @@
-import React,{useState} from 'react';
-import {api} from '../../services/api';
+import React from 'react';
+import Users from './Users';
+import Courses from './Courses';
 import Materials from './Materials';
 import Questions from './Questions';
 import Exams from './Exams';
-import {button,input,Heading,Panel,Field,CourseSelect,useRemote,useMutation,State,Table,Empty,Notice} from './parts';
-const roles=['ADMIN','LECTURER','STUDENT'];
+import { Empty, Notice } from './parts';
 
-function Users({user}){
- const data=useRemote(()=>api.users());const m=useMutation(data.reload);
- const [form,setForm]=useState({fullName:'',email:'',password:'',role:'STUDENT'}),[editing,setEditing]=useState(null);
- async function submit(e){e.preventDefault(); const v=await m.run(()=>editing?api.updateUser(editing.id,{fullName:form.fullName,email:form.email,role:form.role}):api.createUser(form),editing?'Đã cập nhật người dùng.':'Đã tạo tài khoản.');if(v){setEditing(null);setForm({fullName:'',email:'',password:'',role:'STUDENT'});}}
- return <section className="space-y-5"><Heading title="Quản lý người dùng" subtitle="Tạo và quản lý tài khoản ADMIN, LECTURER, STUDENT (chỉ Admin)." action={<button className={button} onClick={data.reload}>Tải lại</button>}/>
- <Panel title={editing?'Sửa tài khoản':'Thêm tài khoản'}><form onSubmit={submit} className="grid md:grid-cols-2 gap-3"><Field label="Họ tên" required><input className={input} required maxLength={150} value={form.fullName} onChange={e=>setForm({...form,fullName:e.target.value})}/></Field><Field label="Email" required><input className={input} type="email" required value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></Field>
- {!editing&&<Field label="Mật khẩu (≥ 8 ký tự)" required><input className={input} type="password" required minLength={8} value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></Field>}<Field label="Vai trò (chỉ Admin được sửa)"><select className={input} value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>{roles.map(r=><option key={r}>{r}</option>)}</select></Field>
- <div className="md:col-span-2 flex gap-2"><button className={button} disabled={m.busy}>{editing?'Lưu thay đổi':'Tạo tài khoản'}</button>{editing&&<button type="button" className={button} onClick={()=>{setEditing(null);setForm({fullName:'',email:'',password:'',role:'STUDENT'});}}>Hủy</button>}</div></form><State error={m.error} success={m.success}/></Panel>
- {data.error&&<Notice type="error">{data.error}</Notice>}{data.loading?<p>Đang tải tài khoản...</p>:<Table rows={data.items} columns={[{key:'fullName',label:'Họ tên'},{key:'email',label:'Email'},{key:'role',label:'Vai trò'},{key:'active',label:'Trạng thái',render:u=>u.active?'Hoạt động':'Đã khóa'},{key:'id',label:'User ID'}]} actions={u=><div className="flex flex-wrap gap-2"><button className={button} onClick={()=>{setEditing(u);setForm({fullName:u.fullName,email:u.email,password:'',role:u.role});}}>Sửa</button><button className={button} disabled={m.busy||u.id===user.id} onClick={()=>m.run(()=>api.setUserActive(u.id,!u.active),u.active?'Đã khóa tài khoản.':'Đã mở tài khoản.')}>{u.active?'Khóa':'Mở'}</button>{u.active&&u.id!==user.id&&<button className={button} disabled={m.busy} onClick={()=>{if(window.confirm(`Ngừng sử dụng tài khoản ${u.email}? Lịch sử được giữ lại.`))m.run(()=>api.deleteUser(u.id),'Đã ngừng sử dụng tài khoản; lịch sử được giữ lại.');}}>Xóa</button>}</div>}/>}
- </section>;
-}
-function Courses({user}){
- const [lecturerId,setLecturerId]=useState('');const data=useRemote(()=>api.courses(lecturerId),[lecturerId]);const teachers=useRemote(()=>api.users());const admin=user.role==='ADMIN';
- const [form,setForm]=useState({code:'',name:'',description:''});const [courseId,setCourseId]=useState('');const [assignRole,setAssignRole]=useState('STUDENT');const [userEmail,setUserEmail]=useState('');
- const [editingCourse,setEditingCourse]=useState('');
- const [editingAssignment,setEditingAssignment]=useState(null);
- const assigned=useRemote(()=>courseId?api.courseLecturers(courseId):Promise.resolve([]),[courseId]);const roster=useRemote(()=>courseId?api.courseStudents(courseId):Promise.resolve([]),[courseId]);const m=useMutation(()=>{data.reload();assigned.reload();roster.reload();});
- async function submit(e){e.preventDefault();const res=await m.run(()=>editingCourse?api.updateCourse(editingCourse,form):api.createCourse(form),editingCourse?'Đã sửa môn học.':'Đã tạo môn học.');if(res){setEditingCourse('');setForm({code:'',name:'',description:''});}}
- async function assign(e){e.preventDefault();const res=await m.run(()=>editingAssignment?api.replaceLecturer(courseId,editingAssignment.id,userEmail):assignRole==='LECTURER'?api.assignLecturer(courseId,userEmail):api.enrollStudent(courseId,userEmail),'Đã phân công/ghi danh thành công.');if(res){setUserEmail('');setEditingAssignment(null);}}
- return <section className="space-y-5"><Heading title="Môn học & sinh viên" subtitle="Admin quản lý môn học, phân công giảng viên và ghi danh sinh viên." action={<button className={button} onClick={data.reload}>Tải lại</button>}/>
- <Panel title="Môn học theo giảng viên"><Field label="Lọc theo giảng viên"><select className={input} value={lecturerId} onChange={e=>{setLecturerId(e.target.value);setCourseId('');setEditingAssignment(null);setUserEmail('');}}><option value="">Tất cả giảng viên</option>{teachers.items.filter(u=>u.role==='LECTURER').map(u=><option key={u.id} value={u.id}>{u.fullName} · {u.email}</option>)}</select></Field><State error={teachers.error}/></Panel>
- {admin&&<Panel title={editingCourse?'Sửa môn học':'Tạo môn học'}><form onSubmit={submit} className="grid md:grid-cols-2 gap-3"><Field label="Mã môn" required><input className={input} required maxLength={30} value={form.code} onChange={e=>setForm({...form,code:e.target.value})}/></Field><Field label="Tên môn" required><input className={input} required maxLength={200} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field><Field label="Mô tả"><textarea className={input} maxLength={2000} value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field><div className="self-end flex gap-2"><button className={button} disabled={m.busy}>{editingCourse?'Lưu môn học':'Tạo môn học'}</button>{editingCourse&&<button type="button" className={button} onClick={()=>{setEditingCourse('');setForm({code:'',name:'',description:''});}}>Hủy sửa môn</button>}</div></form></Panel>}
- <Panel title="Phân công giảng viên / Ghi danh sinh viên"><form onSubmit={assign} className="grid md:grid-cols-3 gap-3"><CourseSelect courses={data.items} value={courseId} disabled={m.busy||!!editingAssignment} onChange={setCourseId}/><Field label="Loại thao tác"><select className={input} value={assignRole} disabled={m.busy||!!editingAssignment} onChange={e=>setAssignRole(e.target.value)}>{admin&&<option value="LECTURER">Phân công giảng viên</option>}<option value="STUDENT">Ghi danh sinh viên</option></select></Field><Field label="Email người dùng" required><input type="email" className={input} required value={userEmail} onChange={e=>setUserEmail(e.target.value)} placeholder="student@example.com"/></Field><button disabled={m.busy||!courseId||!userEmail||(!admin&&assignRole==='LECTURER')} className={button}>Xác nhận</button></form><p className="text-xs text-mutedtext">Admin phân công giảng viên trước khi giảng viên quản lý rubric và tài liệu. Nhập email tài khoản đã tồn tại, đúng vai trò và đang hoạt động.</p></Panel>
- {editingAssignment&&<Notice>Đang thay giảng viên {editingAssignment.fullName}. Nhập email giảng viên thay thế ở biểu mẫu phân công rồi bấm Xác nhận. <button className={button} onClick={()=>{setEditingAssignment(null);setUserEmail('');}}>Hủy thay giảng viên</button></Notice>}
- {courseId&&<Panel title="Giảng viên được phân công"><State error={assigned.error}/>{assigned.loading?<p>Đang tải phân công...</p>:<Table rows={assigned.items} columns={[{key:'fullName',label:'Giảng viên'},{key:'email',label:'Email'}]} actions={u=><div className="flex flex-wrap gap-2"><button className={button} disabled={m.busy} onClick={()=>{setEditingAssignment(u);setAssignRole('LECTURER');setUserEmail(u.email);}}>Đổi giảng viên</button><button className={button} disabled={m.busy} onClick={()=>{if(window.confirm(`Gỡ phân công ${u.fullName} khỏi môn?`))m.run(()=>api.removeLecturer(courseId,u.id),'Đã gỡ phân công.');}}>Gỡ phân công</button></div>}/>}</Panel>}
- {courseId&&<Panel title="Sinh viên của môn học"><State error={roster.error}/>{roster.loading?<p>Đang tải sinh viên...</p>:<Table rows={roster.items} columns={[{key:'fullName',label:'Họ tên'},{key:'email',label:'Email'},{key:'enrollmentStatus',label:'Ghi danh',render:s=>s.enrollmentStatus==='ACTIVE'?'Đang học':'Đã ngừng học'}]} actions={s=>s.enrollmentStatus==='ACTIVE'?<button className={button} disabled={m.busy} onClick={()=>{if(window.confirm(`Ngừng ghi danh ${s.fullName}? Lịch sử thi vẫn được giữ.`))m.run(()=>api.dropStudent(courseId,s.id),'Đã ngừng ghi danh.');}}>Ngừng ghi danh</button>:s.active?<button className={button} disabled={m.busy} onClick={()=>m.run(()=>api.enrollStudent(courseId,s.email),'Đã kích hoạt lại ghi danh môn học.')}>Ghi danh lại</button>:null}/>}</Panel>}
- <State error={m.error} success={m.success}/>{data.error&&<Notice type="error">{data.error}</Notice>}{data.loading?<p>Đang tải môn học...</p>:<Table rows={data.items} columns={[{key:'code',label:'Mã môn'},{key:'name',label:'Tên môn'},{key:'description',label:'Mô tả'},{key:'active',label:'Trạng thái',render:c=>c.active===false?'Ngừng sử dụng':'Đang sử dụng'}]} actions={c=><div className="flex flex-wrap gap-2"><button className={button} disabled={m.busy} onClick={()=>{setEditingCourse(c.id);setForm({code:c.code,name:c.name,description:c.description||''});}}>Sửa môn</button>{c.active===false?<button className={button} disabled={m.busy} onClick={()=>m.run(()=>api.restoreCourse(c.id),'Đã khôi phục môn học.')}>Khôi phục môn</button>:<button className={button} disabled={m.busy} onClick={()=>{if(window.confirm(`Ngừng sử dụng môn ${c.code}? Lịch sử được giữ lại.`))m.run(()=>api.deleteCourse(c.id),'Đã ngừng sử dụng môn học; lịch sử được giữ lại.');}}>Xóa môn</button>}</div>}/>}
- </section>;
-}
-export default function ApiContent({user,section}){
- return <div className="api-content space-y-5">{section==='users'?(user.role==='ADMIN'?<Users user={user}/>:<Notice type="error">Chỉ Admin được truy cập tài khoản.</Notice>):section==='courses'?(user.role==='ADMIN'?<Courses user={user}/>:<Notice type="error">Chỉ Admin quản lý môn học và sinh viên.</Notice>):section==='questions'?<Questions/>:section==='exams'?<Exams user={user}/>:section==='materials'?<Materials/>:<Empty>Chức năng chưa hỗ trợ.</Empty>}</div>;
+export default function ApiContent({ user, section }) {
+  let content;
+  switch (section) {
+    case 'users':
+      content = user.role === 'ADMIN'
+        ? <Users user={user} />
+        : <Notice type="error">Chỉ Admin được truy cập tài khoản.</Notice>;
+      break;
+    case 'courses':
+      content = user.role === 'ADMIN'
+        ? <Courses user={user} />
+        : <Notice type="error">Chỉ Admin quản lý môn học và sinh viên.</Notice>;
+      break;
+    case 'questions':
+      content = <Questions />;
+      break;
+    case 'exams':
+      content = <Exams />;
+      break;
+    case 'materials':
+      content = <Materials />;
+      break;
+    default:
+      content = <Empty>Chức năng chưa hỗ trợ.</Empty>;
+  }
+  return <div className="api-content space-y-5">{content}</div>;
 }

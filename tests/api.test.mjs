@@ -3,7 +3,47 @@ import assert from 'node:assert/strict';
 import { api, request, setToken, decodeJwt, ApiError } from '../src/services/api.js';
 
 const originalFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = originalFetch; setToken(null); });
+const originalWindow = globalThis.window;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  if (originalWindow === undefined) delete globalThis.window;
+  else globalThis.window = originalWindow;
+  setToken(null);
+});
+
+test('a late unauthorized response cannot log out a newer session', async () => {
+  globalThis.window = new EventTarget();
+  let unauthorized = 0, respond;
+  window.addEventListener('aives:unauthorized', () => unauthorized++);
+  globalThis.fetch = () => new Promise(resolve => { respond = resolve; });
+  setToken('old-session');
+  const pending = api.courses();
+  setToken('new-session');
+  respond(Response.json({ message: 'Expired token' }, { status: 401 }));
+  await assert.rejects(pending, error => error.status === 401);
+  assert.equal(unauthorized, 0);
+});
+
+test('unauthorized response from the current session still requests logout', async () => {
+  globalThis.window = new EventTarget();
+  let unauthorized = 0;
+  window.addEventListener('aives:unauthorized', () => unauthorized++);
+  setToken('current-session');
+  globalThis.fetch = async () => Response.json({ message: 'Expired token' }, { status: 401 });
+  await assert.rejects(api.courses(), error => error.status === 401);
+  assert.equal(unauthorized, 1);
+});
+
+for (const responseType of ['text', 'blob']) {
+  test(`timeout while reading the ${responseType} response has a useful error`, async () => {
+    globalThis.fetch = async () => ({
+      ok: true, status: 200,
+      [responseType]: async () => { throw new DOMException('Timed out reading response', 'TimeoutError'); },
+    });
+    await assert.rejects(request('/slow-response', { responseType }),
+      error => error instanceof ApiError && error.status === 0 && /phản hồi quá lâu/.test(error.message));
+  });
+}
 
 test('login calls Spring Boot /api/v1/auth/login using email and unwraps ApiResponse', async () => {
   globalThis.fetch = async (url, opts) => {

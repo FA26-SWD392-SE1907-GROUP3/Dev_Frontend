@@ -3,13 +3,11 @@ import {
   LayoutDashboard,
   Users,
   BookOpen,
-  Settings,
   HelpCircle,
   CalendarDays,
   FileText,
   BookmarkCheck,
   Tv,
-  CheckCircle2,
   ShieldAlert
 } from 'lucide-react';
 

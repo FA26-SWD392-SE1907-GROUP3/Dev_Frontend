@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 export const button='api-button';
 export const input='api-input';
 export function Heading({title,subtitle,action}){return <div className="flex flex-wrap gap-3 items-start justify-between"><div><h1 className="text-2xl font-bold">{title}</h1>{subtitle&&<p className="text-sm text-mutedtext mt-1">{subtitle}</p>}</div>{action}</div>;}
@@ -14,4 +14,37 @@ export function useRemote(fetcher,deps=[]){const [items,setItems]=useState([]),[
 export function State({error,success}){return <>{error&&<Notice type="error">{error}</Notice>}{success&&<Notice>{success}</Notice>}</>}
 export function Empty({children}){return <p className="text-sm text-mutedtext p-4 bg-surface border border-appborder rounded-lg">{children}</p>}
 export function Table({columns,rows,keyField='id',actions}){return <div className="overflow-x-auto bg-surface border border-appborder rounded-xl"><table className="w-full text-left text-sm"><thead><tr>{columns.map(c=><th key={c.key} className="p-3 bg-canvas">{c.label}</th>)}{actions&&<th className="p-3 bg-canvas">Thao tác</th>}</tr></thead><tbody>{rows.length?rows.map((row,i)=><tr key={row[keyField]||i} className="border-t border-appborder">{columns.map(c=><td key={c.key} className="p-3 align-top max-w-xs break-words">{c.render?c.render(row):String(row[c.key]??'—')}</td>)}{actions&&<td className="p-3">{actions(row)}</td>}</tr>):<tr><td colSpan={columns.length+(actions?1:0)} className="p-4 text-mutedtext">Chưa có dữ liệu.</td></tr>}</tbody></table></div>}
-export function useMutation(reload){const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('');async function run(fn,message='Đã lưu thành công.'){setBusy(true);setError('');setSuccess('');try{const res=await fn();setSuccess(message);reload?.();return res ?? {ok:true};}catch(e){setError(e.message);return null;}finally{setBusy(false);}}return {busy,error,success,run,setError,setSuccess};}
+export function useMutation(reload) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const inFlight = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  async function run(fn, message = 'Đã lưu thành công.') {
+    if (inFlight.current || !mounted.current) return null;
+    inFlight.current = true;
+    setBusy(true);
+    setError('');
+    setSuccess('');
+    try {
+      const result = await fn();
+      if (!mounted.current) return null;
+      setSuccess(message);
+      reload?.();
+      return result ?? { ok: true };
+    } catch (error) {
+      if (mounted.current) setError(error.message);
+      return null;
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+  return { busy, error, success, run, setError, setSuccess };
+}

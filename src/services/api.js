@@ -26,36 +26,32 @@ export async function request(path, { body, responseType, rawBody = false, timeo
   const timeout = AbortSignal.timeout(timeoutMs);
   let signal = timeout;
   if (options.signal) signal = AbortSignal.any([options.signal, timeout]);
-  let response;
+  const requestToken = bearerToken;
   try {
-    response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(`${baseUrl}${path}`, {
       ...options, signal,
       headers: { ...(body !== undefined && !multipart ? { 'Content-Type': 'application/json' } : {}),
-        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}), ...options.headers },
+        ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}), ...options.headers },
       ...(body !== undefined ? { body: multipart || rawBody ? body : JSON.stringify(body) } : {}),
     });
+    if (response.status === 401 && requestToken && bearerToken === requestToken && !path.startsWith('/auth/login') && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('aives:unauthorized'));
+    }
+    if (responseType === 'blob' && response.ok) return await response.blob();
+
+    const raw = await response.text();
+    let result = null;
+    if (raw) { try { result = JSON.parse(raw); } catch { result = raw; } }
+    if (!response.ok) throw new ApiError(serverMessage(result, response.status), response.status);
+    // Only unwrap ApiResponse<T>; direct controller records, arrays and UUIDs stay untouched.
+    if (result && !Array.isArray(result) && typeof result === 'object' && 'data' in result && 'code' in result) return result.data;
+    return result;
   } catch (e) {
+    if (e instanceof ApiError) throw e;
     if (options.signal?.aborted) throw e;
     if (timeout.aborted || e.name === 'TimeoutError') throw new ApiError('Máy chủ phản hồi quá lâu, hãy kiểm tra Spring Boot.', 0);
     throw new ApiError('Không kết nối được Spring Boot. Kiểm tra backend trên cổng 8080 và Vite proxy.', 0);
   }
-  if (response.status === 401 && bearerToken && !path.startsWith('/auth/login') && typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('aives:unauthorized'));
-  }
-  if (responseType === 'blob') {
-    if (!response.ok) {
-      const problem = await response.json().catch(() => null);
-      throw new ApiError(serverMessage(problem, response.status), response.status);
-    }
-    return response.blob();
-  }
-  const raw = await response.text();
-  let result = null;
-  if (raw) { try { result = JSON.parse(raw); } catch { result = raw; } }
-  if (!response.ok) throw new ApiError(serverMessage(result, response.status), response.status);
-  // Only unwrap ApiResponse<T>; direct controller records, arrays and UUIDs stay untouched.
-  if (result && !Array.isArray(result) && typeof result === 'object' && 'data' in result && 'code' in result) return result.data;
-  return result;
 }
 
 export function decodeJwt(token) {

@@ -1,25 +1,10 @@
 import React,{useEffect,useState,useRef} from 'react';
 import {api} from '../../services/api';
+import usePolling from '../../hooks/usePolling';
 import {Heading,Notice,Panel,Field,State,Table,button,input,useRemote} from './parts';
 
 const dates=value=>value?new Date(value).toLocaleString('vi-VN'):'—';
 const phases={PREPARING:'Chuẩn bị câu hỏi',QUESTION_READY:'Đang nghe câu hỏi',ANSWERING:'Đang trả lời',PROCESSING:'Đang xử lý câu trả lời',TRANSCRIPTION_FAILED:'Lỗi nhận dạng giọng nói',AI_FAILED:'AI cần thử lại',DEADLINE_REACHED:'Đã hết thời gian câu',COMPLETED:'Hoàn thành',IN_PROGRESS:'Đang thi',CANCELLED:'Đã hủy',TIMED_OUT:'Hết giờ'};
-function usePolling(fetcher,deps,enabled=true){
-  const [state,setState]=useState({value:null,error:'',loading:false,receivedAt:null}),[tick,setTick]=useState(0);
-  useEffect(()=>{
-    let live=true,inFlight=false;
-    setState({value:null,error:'',loading:enabled,receivedAt:null});
-    async function load(){
-      if(!enabled||inFlight)return;inFlight=true;
-      try{const value=await fetcher();if(live)setState({value,error:'',loading:false,receivedAt:Date.now()});}
-      catch(error){if(live)setState(old=>({...old,error:error.message,loading:false}));}
-      finally{inFlight=false;}
-    }
-    load();const timer=setInterval(load,5000);
-    return()=>{live=false;clearInterval(timer);};
-  },[...deps,tick,enabled]);
-  return {...state,reload:()=>setTick(v=>v+1)};
-}
 function Transcript({examId,attemptId,onClose}){
   const data=usePolling(()=>api.examTranscript(examId,attemptId),[examId,attemptId]);
   const [audio,setAudio]=useState(null),[audioError,setAudioError]=useState(''),[audioBusy,setAudioBusy]=useState('');

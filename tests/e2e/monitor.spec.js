@@ -43,6 +43,7 @@ test('lecturer sees live exam progress, saved transcript and audio then polling 
   await page.getByLabel('Tìm sinh viên').fill('an@example.com');await expect(page.getByRole('row').filter({hasText:'Trần Bình'})).toHaveCount(0);
   await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'test-results/lecturer-monitor.png',fullPage:true});
   monitorFailure=true;
+  await page.getByRole('button',{name:'Cập nhật ngay',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('Tạm mất kết nối giám sát.',{timeout:10000});
   await expect(page.getByRole('row').filter({hasText:'Nguyễn An'})).toContainText('Hoàn thành');
   await expect(page.getByText('Dữ liệu đang hiển thị từ lần cập nhật thành công trước.',{exact:false})).toBeVisible();
