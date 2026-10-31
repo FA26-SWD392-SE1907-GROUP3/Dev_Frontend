@@ -1,0 +1,47 @@
+
+> swd_demo@1.0.0 test:e2e
+> playwright test
+
+[WebServer] (node:10220) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 32 tests using 1 worker
+
+(node:11384) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 tests\e2e\auth.spec.js:3:1 › login uses email/password and opens admin dashboard from backend JWT/profile (1.9s)
+  ok  2 tests\e2e\courses.spec.js:3:1 › create course sends code/name once even when the form is submitted twice (1.5s)
+  ok  3 tests\e2e\exam-access.spec.js:8:3 › starting exam handles HTTP 401 with an actionable explanation (1.5s)
+  ok  4 tests\e2e\exam-access.spec.js:8:3 › starting exam handles HTTP 403 with an actionable explanation (1.4s)
+  ok  5 tests\e2e\exams.spec.js:7:1 › lecturer schedules only after administrator enrolls the student (2.1s)
+  ok  6 tests\e2e\flows.spec.js:19:1 › CSV import is previewed and teacher independently approves or rejects each question (2.3s)
+  ok  7 tests\e2e\flows.spec.js:47:1 › AI generation returns questions directly to the teacher review queue without approval (1.8s)
+  ok  8 tests\e2e\flows.spec.js:62:1 › exam config sends adaptive mode and a whole-student deep-question budget (1.9s)
+  ok  9 tests\e2e\generation-feedback.spec.js:22:1 › missing rubric explains the block, then valid generation shows progress and actual draft questions (3.5s)
+  ok 10 tests\e2e\generation-feedback.spec.js:38:1 › no published rubric gives setup guidance and can refresh newly published rubrics (2.0s)
+  ok 11 tests\e2e\generation-feedback.spec.js:47:1 › provider failure is shown next to the generation form (1.6s)
+  ok 12 tests\e2e\monitor.spec.js:26:1 › lecturer sees live exam progress, saved transcript and audio then polling updates completion (11.5s)
+  ok 13 tests\e2e\monitor.spec.js:52:1 › admin manages teacher courses and students while monitor is absent (1.7s)
+  ok 14 tests\e2e\monitor.spec.js:69:1 › admin edits courses, archives and restores them, and replaces a lecturer (2.2s)
+  ok 15 tests\e2e\monitor.spec.js:97:1 › lecturer edits and archives an unused draft rubric and renames and deletes a material (2.2s)
+  ok 16 tests\e2e\monitor.spec.js:125:1 › monitor explains a missing backend route instead of leaving a blank error screen (1.2s)
+  ok 17 tests\e2e\monitor.spec.js:131:1 › admin can disable another account with delete while retaining the current account (1.7s)
+  ok 18 tests\e2e\monitor.spec.js:143:1 › lecturer deletes a draft exam and clears its selection (1.3s)
+  ok 19 tests\e2e\teacher-workflow.spec.js:18:1 › teacher edits AI drafts, approves into official bank and removes unwanted questions (2.0s)
+  ok 20 tests\e2e\teacher-workflow.spec.js:45:1 › teacher creates exam, manages its question pool and changes student schedules (2.7s)
+  ok 21 tests\e2e\teaching.spec.js:25:1 › unassigned lecturer sees assignment guidance and no rubric creation form (1.5s)
+  ok 22 tests\e2e\teaching.spec.js:33:1 › rubric loads saved criteria, adds missing points and publishes (2.1s)
+  ok 23 tests\e2e\teaching.spec.js:63:1 › materials support upload, indexing, text preview and download without an AI key (2.3s)
+  ok 24 tests\e2e\teaching.spec.js:94:1 › AI questions show source evidence and can be reviewed before use (2.1s)
+  ok 25 tests\e2e\teaching.spec.js:133:1 › failed indexing refreshes the material status and can be retried (2.0s)
+(node:2020) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 26 tests\e2e\interview.spec.js:79:1 › text viva restores the deadline after reload and asks an adaptive followup (3.2s)
+  ok 27 tests\e2e\interview.spec.js:95:1 › voice viva displays live captions and submits a real browser recording (2.4s)
+  ok 28 tests\e2e\interview.spec.js:110:1 › empty answer times out and provider failure preserves an accepted answer (3.4s)
+  ok 29 tests\e2e\interview.spec.js:116:1 › a failed AI followup can be retried without resubmitting the saved answer (1.7s)
+  ok 30 tests\e2e\interview.spec.js:127:1 › an initial connection failure can be retried without losing the attempt (1.5s)
+  ok 31 tests\e2e\interview.spec.js:132:1 › online interview speaks then opens the microphone and automatically resumes after an adaptive followup (2.3s)
+  ok 32 tests\e2e\interview.spec.js:153:3 › automatic voice turns › a pause submits the recording and the AI continues without any per-answer click (18.6s)
+
+  32 passed (1.6m)
