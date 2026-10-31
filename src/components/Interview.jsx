@@ -1,9 +1,18 @@
+import AttemptGrade from './common/AttemptGrade';
+import ConversationInterview from './ConversationInterview';
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { createVoiceCapture } from '../services/voiceCapture';
 import { button, input, Heading, Panel, Notice, State } from './api/parts';
 
-export default function Interview({ candidateId, attemptId: initialAttemptId = '', onBack, onAttemptSaved }) {
+export default function InterviewScreen(props) {
+  const [legacy, setLegacy] = useState(() => sessionStorage.getItem('aives-interview-mode') === 'manual');
+  return legacy
+    ? <Interview {...props} onVoice={() => { sessionStorage.setItem('aives-interview-mode', 'call'); setLegacy(false); }} />
+    : <ConversationInterview {...props} onLegacy={() => { sessionStorage.setItem('aives-interview-mode', 'manual'); setLegacy(true); }} />;
+}
+
+function Interview({ candidateId, attemptId: initialAttemptId = '', onBack, onAttemptSaved, onVoice }) {
   const [attemptId, setAttemptId] = useState(initialAttemptId);
   const [session, setSession] = useState(null);
   const [error, setError] = useState('');
@@ -24,6 +33,7 @@ export default function Interview({ candidateId, attemptId: initialAttemptId = '
   const [now, setNow] = useState(Date.now());
   const [offset, setOffset] = useState(0);
   const capture = useRef(null), player = useRef(null), alive = useRef(true), operating = useRef(false), revision = useRef(0), current = useRef(null);
+  const refreshRequest = useRef(null);
   const expiredPrompt = useRef('');
   const speechObject = useRef(''), savedPlayer = useRef(null), playRequested = useRef(false);
   const callStream = useRef(null), callActive = useRef(false), modeRef = useRef(callMode), speechPrompt = useRef('');
@@ -40,10 +50,18 @@ export default function Interview({ candidateId, attemptId: initialAttemptId = '
     setOffset(Date.now() - Date.parse(state.serverNow));
   }
   async function refresh(id = attemptId) {
-    if (!id) return;
+    if (!id || operating.current || refreshRequest.current) return;
+    const controller = new AbortController();
+    refreshRequest.current = controller;
     const expected = revision.current;
-    try { const state = await api.interview(id); if (expected === revision.current) { accept(state); setError(''); } }
-    catch (e) { if (alive.current && expected === revision.current) setError(e.message); }
+    try {
+      const state = await api.interview(id, { signal: controller.signal });
+      if (alive.current && !controller.signal.aborted && expected === revision.current) { accept(state); setError(''); }
+    } catch (e) {
+      if (alive.current && !controller.signal.aborted && expected === revision.current) setError(e.message);
+    } finally {
+      if (refreshRequest.current === controller) refreshRequest.current = null;
+    }
   }
   async function run(label, operation) {
     if (operating.current) return null;
@@ -68,7 +86,11 @@ export default function Interview({ candidateId, attemptId: initialAttemptId = '
     if (!attemptId) return;
     refresh(attemptId);
     const timer = setInterval(() => { if (!operating.current && current.current?.status === 'IN_PROGRESS') refresh(attemptId); }, 3000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      refreshRequest.current?.abort();
+      refreshRequest.current = null;
+    };
   }, [attemptId]);
   useEffect(() => {
     capture.current?.cancel(); capture.current = null; setRecording(false); setPendingAudio(null); setLiveText(''); setLiveStatus(''); setVoiceError(''); expiredPrompt.current = '';
@@ -99,8 +121,9 @@ export default function Interview({ candidateId, attemptId: initialAttemptId = '
     }
   }, [speechUrl]);
   useEffect(() => {
-    if (session?.status === 'COMPLETED') {
+    if (session && session.status !== 'IN_PROGRESS') {
       callActive.current = false; setConnected(false); setCallPhase('finished');
+      player.current?.pause();
       capture.current?.cancel(); capture.current = null; setRecording(false);
       callStream.current?.getTracks().forEach(track => track.stop()); callStream.current = null;
     }
@@ -148,6 +171,7 @@ export default function Interview({ candidateId, attemptId: initialAttemptId = '
     }
   }
   function switchMode() {
+    if (!callMode && onVoice) { onVoice(); return; }
     const next = !callMode; modeRef.current = next; setCallMode(next);
     sessionStorage.setItem('aives-interview-mode',next ? 'call' : 'manual');
     callActive.current = false; setConnected(false); player.current?.pause();
@@ -247,7 +271,8 @@ export default function Interview({ candidateId, attemptId: initialAttemptId = '
         <button className={button} disabled={busy || recording} onClick={() => refresh()}>Đồng bộ lượt thi</button>
       </Panel>}
       {callMode && !session.aiConfigured && <Notice type="error">Máy chủ chưa cấu hình dịch vụ AI cho phỏng vấn. Hãy liên hệ giảng viên để kiểm tra cấu hình.</Notice>}
-      {session.status === 'COMPLETED' && <Notice>Đã hoàn thành lượt thi. Hội thoại và các bản ghi đã nộp được lưu trên máy chủ.</Notice>}
+      {session.status === 'COMPLETED' && <><Notice>Đã hoàn thành lượt thi. AI sẽ chấm toàn bộ bài theo rubric của kỳ thi.</Notice><AttemptGrade attemptId={session.attemptId}/></>}
+      {session.status === 'ABORTED' && <Notice>Lịch thi đã bị giảng viên hủy. Lượt thi đã dừng; hội thoại và các bản ghi đã nộp vẫn được lưu.</Notice>}
       {session.busy && <Notice>Máy chủ đang xử lý câu trả lời đã nộp. Bạn có thể chờ hoặc tải lại trang để tiếp tục theo dõi.</Notice>}
       {session.needsContinuation && <Panel title="Tiếp tục sau câu trả lời đã lưu"><p>Câu trả lời của bạn đã được lưu. Hãy tiếp tục để AI đặt câu hỏi làm rõ hoặc chuyển câu.</p><button className={button} disabled={busy} onClick={() => run('AI đang tiếp tục...', () => api.continueInterview(attemptId, session.answerTurnId))}>Tiếp tục phỏng vấn</button></Panel>}
       {callMode && session.status === 'IN_PROGRESS' && <section className="interview-call rounded-2xl bg-slate-950 text-white p-6 space-y-5" aria-label="Cuộc phỏng vấn trực tiếp">

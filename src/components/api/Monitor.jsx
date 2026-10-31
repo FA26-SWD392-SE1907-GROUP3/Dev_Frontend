@@ -1,7 +1,10 @@
+import AttemptGrade from '../common/AttemptGrade';
 import React,{useEffect,useState,useRef} from 'react';
 import {api} from '../../services/api';
 import usePolling from '../../hooks/usePolling';
 import {Heading,Notice,Panel,Field,State,Table,button,input,useRemote} from './parts';
+import {Button,ListPage} from '../ui';
+import StatusBadge from '../common/StatusBadge';
 
 const dates=value=>value?new Date(value).toLocaleString('vi-VN'):'—';
 const phases={PREPARING:'Chuẩn bị câu hỏi',QUESTION_READY:'Đang nghe câu hỏi',ANSWERING:'Đang trả lời',PROCESSING:'Đang xử lý câu trả lời',TRANSCRIPTION_FAILED:'Lỗi nhận dạng giọng nói',AI_FAILED:'AI cần thử lại',DEADLINE_REACHED:'Đã hết thời gian câu',COMPLETED:'Hoàn thành',IN_PROGRESS:'Đang thi',CANCELLED:'Đã hủy',TIMED_OUT:'Hết giờ'};
@@ -26,6 +29,7 @@ function Transcript({examId,attemptId,onClose}){
     {data.value&&<><p><strong>{data.value.studentName}</strong> · {data.value.email} · Lượt {data.value.attemptNo} · {phases[data.value.status]||data.value.status}</p><p className="text-sm text-mutedtext">Bắt đầu: {dates(data.value.startedAt)} · Kết thúc: {dates(data.value.endedAt)} · Cập nhật: {dates(data.value.serverNow)}</p>
       <div className="max-h-[650px] overflow-y-auto space-y-3" aria-label="Nội dung hội thoại">{data.value.turns.length?data.value.turns.map(t=><article key={t.id} className={`border border-appborder rounded-lg p-4 ${t.speaker==='AI'?'bg-primary-light':''}`}><p className="font-semibold text-sm">{t.speaker==='STUDENT'?'Sinh viên':'Giám khảo AI'} · Câu {t.sequenceNo}{t.followupNumber?` · Đào sâu ${t.followupNumber}`:''}</p><p className="text-xs text-mutedtext mt-1">{dates(t.createdAt)}{t.deadline?` · Hạn trả lời: ${dates(t.deadline)}`:''}</p><p className="whitespace-pre-wrap mt-2 text-sm">{t.text||(t.speechStatus==='PROCESSING'?'Đang chuyển âm thanh thành văn bản...':t.speechStatus==='FAILED'?'Nhận dạng bản ghi thất bại.':'Chưa có nội dung.')}</p>{t.hasAudio&&<div className="mt-3"><button className={button} disabled={!!audioBusy} onClick={()=>listen(t)}>{audioBusy===t.id?'Đang tải âm thanh...':'Nghe bản ghi'}</button>{audio?.id===t.id&&<audio className="mt-2 max-w-full" src={audio.url} controls autoPlay aria-label="Bản ghi lượt hội thoại"/>}</div>}</article>):<p>Chưa có lượt hội thoại được lưu.</p>}</div>
     </>}
+    {data.value?.status==='COMPLETED'&&<AttemptGrade attemptId={attemptId}/>}
     <p className="text-xs text-mutedtext">Chỉ hiển thị câu trả lời và âm thanh đã được nộp lên máy chủ. Phụ đề tạm thời và bản ghi chưa nộp trên máy sinh viên chưa xuất hiện ở đây.</p>
   </Panel>;
 }
@@ -40,8 +44,12 @@ export default function Monitor(){
   const category=c=>latest(c)?.status||'WAITING';
   function status(c){const a=latest(c);return a?(phases[a.phase]||phases[a.status]||a.status):c.status==='CANCELLED'?'Đã hủy':Date.parse(c.scheduledEnd)<serverNow?'Quá giờ chưa thi':Date.parse(c.scheduledStart)>serverNow?'Chưa đến giờ':'Chờ vào thi';}
   const filtered=rows.filter(c=>(filter==='ALL'||(filter==='ATTENTION'?['TRANSCRIPTION_FAILED','AI_FAILED','DEADLINE_REACHED'].includes(latest(c)?.phase):category(c)===filter))&&`${c.fullName} ${c.email}`.toLocaleLowerCase('vi').includes(search.toLocaleLowerCase('vi')));
-  return <section className="space-y-5"><Heading title="Giám sát ca thi" subtitle="Theo dõi tiến độ và hội thoại của các kỳ thi thuộc môn được phân công. Tự cập nhật mỗi 5 giây."/>
-    <Panel title="Chọn kỳ thi"><Field label="Kỳ thi cần giám sát"><select className={input} value={examId} onChange={e=>{setExamId(e.target.value);setSelected('');setFilter('ALL');setSearch('');}}><option value="">— Chọn kỳ thi —</option>{exams.items.map(e=><option key={e.id} value={e.id}>{e.title} ({e.status})</option>)}</select></Field><State error={exams.error}/>{!exams.loading&&!exams.error&&!exams.items.length&&<p>Chưa có kỳ thi thuộc môn bạn phụ trách.</p>}</Panel>
+  if(!examId)return <ListPage title="Giám sát ca thi" description="Theo dõi tiến độ và hội thoại của các kỳ thi thuộc môn được phân công. Tự cập nhật mỗi 5 giây."
+    rows={exams.items} loading={exams.loading} error={exams.error} onRetry={exams.reload} searchKeys={['title','courseName','courseCode']} searchPlaceholder="Tìm kiếm ca thi cần giám sát..."
+    onRowClick={row=>{setExamId(row.id);setSelected('');setFilter('ALL');setSearch('');}} openLabel="Xem giám sát"
+    columns={[{key:'title',label:'Tên kỳ thi',className:'min-w-56'},{key:'status',label:'Trạng thái',render:row=><StatusBadge status={row.status}/>}]} />;
+  return <section className="min-w-0 space-y-6"><Button variant="ghost" onClick={()=>{setExamId('');setSelected('');setFilter('ALL');setSearch('');}}>Quay lại danh sách</Button><Heading title="Giám sát ca thi" subtitle="Theo dõi tiến độ và hội thoại của các kỳ thi thuộc môn được phân công. Tự cập nhật mỗi 5 giây."/>
+    {data.error&&<Button variant="secondary" onClick={data.reload}>Thử lại</Button>}
     <State error={data.error}/>{data.error&&!value&&<Notice>Nếu vừa cập nhật hệ thống, hãy khởi động lại backend rồi tải lại trang để sử dụng chức năng giám sát mới.</Notice>}{data.error&&value&&<Notice>Dữ liệu đang hiển thị từ lần cập nhật thành công trước. Máy chủ chưa đồng bộ được thông tin mới.</Notice>}{data.loading&&<p role="status">Đang tải giám sát...</p>}
     {value&&<><div className="flex flex-wrap justify-between gap-3"><div><h2 className="font-semibold">{value.title} · {value.examStatus}</h2><p className="text-sm">{value.courseCode} — {value.courseName}</p><p className="text-xs text-mutedtext">Cập nhật thành công: {dates(value.serverNow)}</p></div><button className={button} onClick={data.reload}>Cập nhật ngay</button></div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[['Tổng thí sinh',rows.length],['Chưa bắt đầu',rows.filter(c=>!latest(c)).length],['Đang thi',rows.filter(c=>category(c)==='IN_PROGRESS').length],['Hoàn thành',rows.filter(c=>category(c)==='COMPLETED').length]].map(([label,count])=><div key={label} className="border border-appborder bg-surface rounded-xl p-4"><p className="text-sm text-mutedtext">{label}</p><p className="text-2xl font-semibold">{count}</p></div>)}</div>

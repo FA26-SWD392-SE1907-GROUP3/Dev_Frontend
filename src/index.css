@@ -13,12 +13,32 @@
   --color-mutedtext: #6B7280;
   --color-appborder: #E5E7EB;
   --color-thead: #F1F5F9;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --color-surface-hover: #F1F5F9;
+  --color-fieldborder: #94A3B8;
+  --color-focus: #2563EB;
+  --color-on-primary: #FFFFFF;
+  --color-danger: #B91C1C;
+  --color-danger-hover: #991B1B;
+  --color-on-danger: #FFFFFF;
+  --color-neutral-soft: #F3F4F6;
+  --color-neutral-text: #4B5563;
+  --color-info-soft: #DBEAFE;
+  --color-info-text: #1E40AF;
+  --color-success-soft: #DCFCE7;
+  --color-success-text: #166534;
+  --color-warning-soft: #FEF3C7;
+  --color-warning-text: #92400E;
+  --color-danger-soft: #FEE2E2;
+  --color-danger-text: #991B1B;
+  --color-skeleton: #E2E8F0;
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --font-app-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: var(--font-app-sans);
 }
 
 .dark {
-  --color-primary: #3B82F6;
-  --color-primary-hover: #2563EB;
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
   --color-primary-light: rgba(59, 130, 246, 0.15);
   --color-primary-border: #334155;
   --color-canvas: #0F172A;
@@ -27,9 +47,27 @@
   --color-mutedtext: #94A3B8;
   --color-appborder: #334155;
   --color-thead: #0F172A;
+  --color-surface-hover: #334155;
+  --color-fieldborder: #64748B;
+  --color-focus: #93C5FD;
+  --color-danger: #B91C1C;
+  --color-danger-hover: #991B1B;
+  --color-neutral-soft: #334155;
+  --color-neutral-text: #E2E8F0;
+  --color-info-soft: #172F55;
+  --color-info-text: #BFDBFE;
+  --color-success-soft: #14352B;
+  --color-success-text: #BBF7D0;
+  --color-warning-soft: #3D2C18;
+  --color-warning-text: #FDE68A;
+  --color-danger-soft: #451F2A;
+  --color-danger-text: #FECACA;
+  --color-skeleton: #334155;
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.16);
 }
 
-@theme {
+/* Inline mappings keep utilities connected to the active light/dark tokens. */
+@theme inline {
   --color-primary: var(--color-primary);
   --color-primary-hover: var(--color-primary-hover);
   --color-primary-light: var(--color-primary-light);
@@ -40,16 +78,61 @@
   --color-mutedtext: var(--color-mutedtext);
   --color-appborder: var(--color-appborder);
   --color-thead: var(--color-thead);
-  --font-sans: var(--font-sans);
+  --color-surface-hover: var(--color-surface-hover);
+  --color-fieldborder: var(--color-fieldborder);
+  --color-focus: var(--color-focus);
+  --color-on-primary: var(--color-on-primary);
+  --color-danger: var(--color-danger);
+  --color-danger-hover: var(--color-danger-hover);
+  --color-on-danger: var(--color-on-danger);
+  --color-neutral-soft: var(--color-neutral-soft);
+  --color-neutral-text: var(--color-neutral-text);
+  --color-info-soft: var(--color-info-soft);
+  --color-info-text: var(--color-info-text);
+  --color-success-soft: var(--color-success-soft);
+  --color-success-text: var(--color-success-text);
+  --color-warning-soft: var(--color-warning-soft);
+  --color-warning-text: var(--color-warning-text);
+  --color-danger-soft: var(--color-danger-soft);
+  --color-danger-text: var(--color-danger-text);
+  --color-skeleton: var(--color-skeleton);
+  --shadow-card: var(--shadow-card);
+  --font-sans: var(--font-app-sans);
+  --text-page: 2rem;
+  --text-page--line-height: 1.2;
+  --text-page--letter-spacing: -0.025em;
+  --text-section: 1.25rem;
+  --text-section--line-height: 1.4;
+  --text-caption: 0.8125rem;
+  --text-caption--line-height: 1.5;
 }
 
 body {
   font-family: var(--font-sans);
   background-color: var(--color-canvas);
   color: var(--color-apptext);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
   margin: 0;
   padding: 0;
   transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background-color: var(--color-info-soft);
+    color: var(--color-info-text);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
+  .animate-soundwave, .animate-pulse-ring { animation: none; }
 }
 
 /* Soundwave animation */

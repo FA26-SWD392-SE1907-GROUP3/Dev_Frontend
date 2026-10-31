@@ -69,6 +69,60 @@ export function decodeJwt(token) {
   } catch { return null; }
 }
 
+export async function streamInterview(path, body, { onEvent = () => {}, signal } = {}) {
+  try {
+  const requestToken = bearerToken;
+  const timeout = AbortSignal.timeout(90000);
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream',
+      ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 401 && requestToken && requestToken === bearerToken && typeof window !== 'undefined')
+    window.dispatchEvent(new Event('aives:unauthorized'));
+  if (!response.ok) {
+    let problem; try { problem = await response.json(); } catch { problem = null; }
+    throw new ApiError(serverMessage(problem, response.status), response.status);
+  }
+  if (!response.headers.get('content-type')?.includes('text/event-stream') || !response.body)
+    throw new ApiError('Máy chủ chưa hỗ trợ hội thoại trực tiếp. Câu trả lời được giữ để thử lại.');
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let buffer = '', result = null;
+  function consume(frame) {
+    let event = 'message'; const data = [];
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+    }
+    if (!data.length) return;
+    const payload = JSON.parse(data.join('\n'));
+    if (event === 'error') throw new ApiError(payload.message || 'AI bị gián đoạn. Câu trả lời đã lưu.');
+    onEvent(event, payload);
+    if (event === 'complete') result = payload;
+  }
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      // Keep a trailing CR until the next chunk so split CRLF is parsed correctly.
+      buffer = buffer.replace(/\r\n/g, '\n');
+      let boundary;
+      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+        consume(buffer.slice(0, boundary)); buffer = buffer.slice(boundary + 2);
+      }
+      if (buffer.length > 200000) throw new ApiError('Phản hồi hội thoại quá dài.');
+      if (result) return result;
+      if (done) break;
+    }
+    throw new ApiError('Kết nối bị ngắt trước khi hoàn tất. Câu trả lời được giữ để thử lại.');
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  } catch (error) {
+    if (error instanceof ApiError || signal?.aborted) throw error;
+    throw new ApiError('Hội thoại mất kết nối hoặc phản hồi quá lâu. Câu trả lời được giữ để thử lại.');
+  }
+}
+
 export const api = {
   login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
   me: (id) => request(`/users/${encodeURIComponent(id)}`),
@@ -113,7 +167,7 @@ export const api = {
   questions: id => request(`/courses/${id}/questions`),
   question: id => request(`/questions/${id}`),
   createQuestion: body => request('/questions', { method: 'POST', body }),
-  importQuestions: (courseId, file, rubricId, preview=true) => { const body=new FormData(); body.append('file',file); if(rubricId)body.append('rubricId',rubricId);body.append('preview',String(preview));return request(`/courses/${courseId}/question-imports`,{method:'POST',body,timeoutMs:120000}); },
+  importQuestions: (courseId, file, preview=true) => { const body=new FormData(); body.append('file',file);body.append('preview',String(preview));return request(`/courses/${courseId}/question-imports`,{method:'POST',body,timeoutMs:120000}); },
   updateQuestion: (id, body) => request(`/questions/${id}`, { method: 'PUT', body }),
   deleteQuestion: id => request(`/questions/${id}`, { method: 'DELETE' }),
   reviewQuestion: (id, approve, comment = '') => request(`/questions/${id}/review?approve=${approve}`, { method: 'PATCH', body: comment, rawBody: true, headers: { 'Content-Type': 'text/plain' } }),
@@ -129,16 +183,21 @@ export const api = {
   examTranscript: (examId,attemptId) => request(`/exams/${examId}/attempts/${attemptId}/transcript`),
   examRecording: (examId,attemptId,turnId) => request(`/exams/${examId}/attempts/${attemptId}/audio/${turnId}`,{responseType:'blob'}),
   rescheduleCandidate: (id, candidateId, body) => request(`/exams/${id}/candidates/${candidateId}`, { method: 'PUT', body }),
-  removeCandidate: (id, candidateId) => request(`/exams/${id}/candidates/${candidateId}`, { method: 'DELETE' }),
+  cancelCandidate: (id, candidateId) => request(`/exams/${id}/candidates/${candidateId}`, { method: 'DELETE' }),
   addExamQuestion: (id, questionId) => request(`/exams/${id}/questions`, { method: 'POST', body: { questionId } }),
   assignCandidate: (id, body) => request(`/exams/${id}/candidates`, { method: 'POST', body }),
   activateExam: id => request(`/exams/${id}/activate`, { method: 'PATCH' }),
   closeExam: id => request(`/exams/${id}/close`, { method: 'PATCH' }),
+  attemptGrade: id => request(`/attempts/${id}/grading`),
+  retryAttemptGrade: id => request(`/attempts/${id}/grading/retry`,{method:'POST'}),
   studentExams: () => request('/student/exams'),
   studentAttempts: candidateId => request(`/student/exams/${encodeURIComponent(candidateId)}/attempts`),
   startAttempt: candidateId => request(`/attempts/start/${candidateId}`, { method: 'POST' }),
   attemptQuestions: attemptId => request(`/attempts/${attemptId}/questions`),
-  interview: id => request(`/interviews/${id}`),
+  interview: (id, options) => request(`/interviews/${id}`, options),
+  streamInterviewAnswer: (id, promptId, text, options) => streamInterview(`/interviews/${id}/turns/stream`, { promptId, text }, options),
+  streamInterviewContinue: (id, answerTurnId, options) => streamInterview(`/interviews/${id}/continue/stream`, { answerTurnId }, options),
+  finishInterview: id => request(`/interviews/${id}/finish`, { method: 'POST' }),
   beginInterviewAnswer: (id, promptId) => request(`/interviews/${id}/begin`, { method: 'POST', body: { promptId } }),
   interviewAnswer: (id, promptId, text) => request(`/interviews/${id}/answers`, { method: 'POST', body: { promptId, text }, timeoutMs: 120000 }),
   interviewAudioAnswer: (id, promptId, file) => { const body = new FormData(); body.append('promptId', promptId); body.append('file', file); return request(`/interviews/${id}/audio-answers`, { method: 'POST', body, timeoutMs: 150000 }); },

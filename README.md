@@ -2,7 +2,7 @@
 
 Phòng thi mặc định là hội thoại bằng giọng nói: vào phòng một lần, AI đọc xong thì micro tự ghi; sau khi sinh viên đã nói và ngừng khoảng 4 giây, hệ thống tự gửi bản ghi, AI xử lý và hỏi tiếp. Có phụ đề trực tiếp, trạng thái AI nói/nghe/suy nghĩ, nút Tôi đã trả lời xong, và chế độ dự phòng ghi âm/nhập văn bản. Giảng viên cấu hình độc lập giới hạn hỏi xoáy mỗi câu chính và tổng câu đào sâu mỗi sinh viên; backend kiểm tra cả hai. Hội thoại luân phiên, chưa hỗ trợ nói chen ngắt AI hoặc video. Chi tiết tại INTERVIEW_FEATURE.md trong backend.
 
-Luồng câu hỏi hỗ trợ import CSV/JSON có mẫu và xem trước, hoặc sinh AI từ PDF/DOCX ngay tại Ngân hàng câu hỏi. Mọi câu mới chờ giáo viên sửa/từ chối/loại bỏ/duyệt, gắn Bloom và rubric có tiêu chí/thang điểm. Kỳ thi có RANDOM/ADAPTIVE, số câu chính và **tổng câu đào sâu tối đa cho mỗi sinh viên**, không đặt lại khi chuyển câu chính. Key nằm trong .env backend; khởi động lại backend và tải lại frontend sau khi cập nhật. Với schema quản lý thủ công, chạy `D:/Dev_Backend/SWD392_SE1907_AIVES/database/04_student_followup_budget.sql`; ddl-auto=update hiện tại tự thêm cột mới.
+Luồng câu hỏi hỗ trợ import CSV/JSON có mẫu và xem trước, hoặc sinh AI từ PDF/DOCX ngay tại Ngân hàng câu hỏi. Mọi câu mới chờ giáo viên sửa/từ chối/loại bỏ/duyệt và chỉ có ba mức **Dễ / Trung bình / Khó**. Rubric được chọn tại kỳ thi để AI chấm **toàn bộ lượt thi sau khi hoàn tất**, không gắn vào từng câu. Kỳ thi có RANDOM/ADAPTIVE, số câu chính và **tổng câu đào sâu tối đa cho mỗi sinh viên**, không đặt lại khi chuyển câu chính. Key nằm trong .env backend; khởi động lại backend và tải lại frontend sau khi cập nhật. Backend tự áp dụng migration PostgreSQL idempotent `06_whole_attempt_rubric.sql` khi khởi động; môi trường quản lý schema thủ công dùng bản trong thư mục `database` của backend.
 
 Hướng dẫn đầy đủ: D:/Dev_Backend/SWD392_SE1907_AIVES/INTERVIEW_FEATURE.md và TEACHING_FEATURES.md.
 
@@ -53,9 +53,10 @@ npm run dev
 3. Admin tạo môn và phân công giảng viên; từ đây giáo viên phụ trách nhóm 1 và 2.
 4. Giảng viên tạo rubric và các tiêu chí tổng điểm bằng `maxScore`; publish.
 5. Giáo viên tạo câu hỏi thủ công hoặc AI. Ở tab Chờ giáo viên duyệt, kiểm tra nguồn, sửa/loại bỏ, rồi duyệt vào Ngân hàng chính thức.
-6. Admin ghi danh sinh viên trong Môn học & sinh viên. Giáo viên tạo kỳ thi, thêm đủ câu APPROVED vào đề, chọn sinh viên đã ghi danh để phân lịch; kích hoạt khi đã chuẩn bị xong.
+6. Admin ghi danh sinh viên trong Môn học & sinh viên. Giáo viên tạo kỳ thi, chọn rubric đã công bố để chấm toàn bài, thêm đủ câu APPROVED vào đề, chọn sinh viên đã ghi danh để phân lịch; kích hoạt khi đã chuẩn bị xong.
 7. Giáo viên xem danh sách thí sinh, sửa hoặc bỏ lịch chưa bắt đầu; kết thúc kỳ thi khi không còn lượt đang thi.
 8. Sinh viên đăng nhập, chọn kỳ thi theo tên từ Lịch thi / Phòng thi, bắt đầu trong đúng khung giờ và trả lời qua giọng nói hoặc văn bản.
+9. Khi toàn bộ lượt thi hoàn tất, AI chấm theo một rubric chung. Sinh viên xem kết quả ở lịch sử lượt thi; giảng viên xem trong hội thoại giám sát. Nếu chấm lỗi có thể thử lại mà không thi lại.
 
 ## Backend chưa có nên frontend không gọi
 
@@ -93,3 +94,6 @@ Chỉ dùng JWT trong `sessionStorage`, không tin nội dung decode ở fronten
 Admin có sửa tài khoản, khóa/mở/xóa mềm tài khoản, sửa/ngừng sử dụng/khôi phục môn học, đổi/gỡ giảng viên và ngừng/ghi danh lại sinh viên. Giảng viên có đổi tên/xóa tài liệu chưa dùng, sửa rubric nháp/ngừng rubric chưa gắn câu hỏi, sửa/xóa tiêu chí nháp, sửa/loại câu hỏi, sửa/xóa kỳ thi nháp và sửa/bỏ lịch chưa có lượt thi. Backend chặn các thao tác ảnh hưởng ca đang mở, sinh viên đang thi hoặc nguồn/căn cứ đã dùng; dữ liệu lịch sử được bảo toàn.
 
 Trang giám sát vẫn chỉ dành cho giảng viên. Nếu API giám sát chưa tồn tại sau cập nhật, cần Stop/Run lại backend trong IDE rồi tải lại trang. Backend cũ có thể chuyển lỗi thiếu route thành `Internal server error`; bộ xử lý mới trả 404 đúng nghĩa. Chi tiết API và điều kiện xóa: `D:\Dev_Backend\SWD392_SE1907_AIVES\CRUD_OPERATIONS.md`.
+# Tương thích với backend Modular Monolith
+
+Backend chia thành Identity, Teaching và Examination; các URL `/api/v1` và WebSocket được giữ nguyên nên frontend tiếp tục dùng lớp API hiện có. Sau khi chuyển package Java, Stop backend rồi Rebuild/Run trước khi tải lại trang. Tài liệu kiến trúc nằm tại `D:\Dev_Backend\SWD392_SE1907_AIVES\MODULAR_MONOLITH.md`.

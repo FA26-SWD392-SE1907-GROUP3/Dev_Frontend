@@ -24,6 +24,7 @@ function snapshot(){
   ]};
 }
 test('lecturer sees live exam progress, saved transcript and audio then polling updates completion',async({page})=>{
+  await page.clock.install();
   const data=snapshot();let monitorCalls=0,monitorFailure=false;
   await login(page,'LECTURER',async(route,path)=>{
     if(path==='/api/v1/exams/e1/monitor'){monitorCalls++;data.serverNow=new Date().toISOString();await route.fulfill(monitorFailure?{status:503,json:{message:'Tạm mất kết nối giám sát.'}}:{json:data});return true;}
@@ -33,12 +34,13 @@ test('lecturer sees live exam progress, saved transcript and audio then polling 
     if(path.endsWith('/audio/t2')){const bytes=Buffer.alloc(4844);bytes.write('RIFF');bytes.writeUInt32LE(4836,4);bytes.write('WAVEfmt ',8);bytes.writeUInt32LE(16,16);bytes.writeUInt16LE(1,20);bytes.writeUInt16LE(1,22);bytes.writeUInt32LE(24000,24);bytes.writeUInt32LE(48000,28);bytes.writeUInt16LE(2,32);bytes.writeUInt16LE(16,34);bytes.write('data',36);bytes.writeUInt32LE(4800,40);await route.fulfill({contentType:'audio/wav',body:bytes});return true;}
   });
   await expect(page.getByRole('navigation').getByRole('button',{name:'Môn học & sinh viên',exact:true})).toHaveCount(0);
-  await page.getByRole('navigation').getByRole('button',{name:'Giám sát ca thi',exact:true}).click();await page.getByLabel('Kỳ thi cần giám sát').selectOption('e1');
+  await page.getByRole('navigation').getByRole('button',{name:'Giám sát ca thi',exact:true}).click();await page.getByRole('button',{name:'Xem giám sát',exact:true}).click();
   await expect(page.getByRole('row').filter({hasText:'Nguyễn An'})).toContainText('Đang trả lời');
   await page.getByRole('row').filter({hasText:'Nguyễn An'}).getByRole('button',{name:'Xem hội thoại lượt 1',exact:true}).click();
   await expect(page.getByText('Các thành phần có trách nhiệm tách biệt.',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Nghe bản ghi',exact:true}).click();await expect(page.getByLabel('Bản ghi lượt hội thoại')).toBeVisible();
   const download=page.waitForEvent('download');await page.getByRole('button',{name:'Tải transcript',exact:true}).click();expect((await download).suggestedFilename()).toBe('hoi-thoai-a1.txt');
   data.candidates[0].attempts[0].phase='COMPLETED';data.candidates[0].attempts[0].status='COMPLETED';data.candidates[0].attempts[0].completedQuestions=3;
+  await page.clock.fastForward(5000);
   await expect(page.getByRole('row').filter({hasText:'Nguyễn An'})).toContainText('Hoàn thành',{timeout:10000});expect(monitorCalls).toBeGreaterThan(1);
   await page.getByLabel('Tìm sinh viên').fill('an@example.com');await expect(page.getByRole('row').filter({hasText:'Trần Bình'})).toHaveCount(0);
   await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'test-results/lecturer-monitor.png',fullPage:true});
@@ -47,7 +49,7 @@ test('lecturer sees live exam progress, saved transcript and audio then polling 
   await expect(page.getByRole('alert')).toContainText('Tạm mất kết nối giám sát.',{timeout:10000});
   await expect(page.getByRole('row').filter({hasText:'Nguyễn An'})).toContainText('Hoàn thành');
   await expect(page.getByText('Dữ liệu đang hiển thị từ lần cập nhật thành công trước.',{exact:false})).toBeVisible();
-  monitorFailure=false;await expect(page.getByRole('alert')).toHaveCount(0,{timeout:10000});
+  monitorFailure=false;await page.clock.fastForward(5000);await expect(page.getByRole('alert')).toHaveCount(0,{timeout:10000});
 });
 test('admin manages teacher courses and students while monitor is absent',async({page})=>{
   let filtered=false,enrolled=false;
@@ -113,18 +115,18 @@ test('lecturer edits and archives an unused draft rubric and renames and deletes
     if(path.endsWith('/generation-jobs')){await route.fulfill({json:[]});return true;}
   });
   await page.getByRole('navigation').getByRole('button',{name:'Tiêu chí Rubric',exact:true}).click();await page.getByRole('combobox',{name:'Môn học',exact:true}).selectOption('c1');
-  await page.getByRole('button',{name:'Sửa rubric',exact:true}).click();await page.getByLabel('Tên rubric').fill('Rubric đã sửa');await page.getByRole('button',{name:'Lưu rubric',exact:true}).click();
+  await page.getByRole('button',{name:'Sửa',exact:true}).click();await page.getByLabel('Tên rubric').fill('Rubric đã sửa');await page.getByRole('button',{name:'Lưu',exact:true}).click();
   await expect(page.getByRole('cell',{name:'Rubric đã sửa',exact:true})).toBeVisible();
-  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Xóa rubric',exact:true}).click();await expect(page.getByRole('cell',{name:'ARCHIVED',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Xóa',exact:true}).click();await page.getByRole('dialog',{name:'Bạn chắc chắn muốn xóa?',exact:true}).getByRole('button',{name:'Xóa',exact:true}).click();await expect(page.getByRole('cell',{name:'ARCHIVED',exact:true})).toBeVisible();
   await page.getByRole('navigation').getByRole('button',{name:'Tài liệu học tập',exact:true}).click();await page.getByRole('combobox',{name:'Môn học',exact:true}).selectOption('c1');
-  await page.getByRole('button',{name:'Đổi tên',exact:true}).click();await page.getByRole('textbox',{name:'Tên tài liệu',exact:true}).fill('renamed.pdf');await page.getByRole('button',{name:'Lưu tên tài liệu',exact:true}).click();
+  await page.getByRole('button',{name:'Sửa',exact:true}).click();await page.getByRole('textbox',{name:'Tên tài liệu',exact:true}).fill('renamed.pdf');await page.getByRole('button',{name:'Lưu',exact:true}).click();
   await expect(page.getByRole('cell',{name:'renamed.pdf',exact:true})).toBeVisible();
-  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Xóa tài liệu',exact:true}).click();await expect(page.getByRole('cell',{name:'renamed.pdf',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Xóa',exact:true}).click();await page.getByRole('dialog',{name:'Bạn chắc chắn muốn xóa?',exact:true}).getByRole('button',{name:'Xóa',exact:true}).click();await expect(page.getByRole('cell',{name:'renamed.pdf',exact:true})).toHaveCount(0);
 });
 
 test('monitor explains a missing backend route instead of leaving a blank error screen',async({page})=>{
   await login(page,'LECTURER',async(route,path)=>{if(path==='/api/v1/exams/e1/monitor'){await route.fulfill({status:404,json:{message:'Không tìm thấy API. Khởi động lại backend.'}});return true;}});
-  await page.getByRole('navigation').getByRole('button',{name:'Giám sát ca thi',exact:true}).click();await page.getByLabel('Kỳ thi cần giám sát').selectOption('e1');
+  await page.getByRole('navigation').getByRole('button',{name:'Giám sát ca thi',exact:true}).click();await page.getByRole('button',{name:'Xem giám sát',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('Khởi động lại backend');
 });
 
@@ -140,17 +142,21 @@ test('admin can disable another account with delete while retaining the current 
   await expect(page.getByRole('row').filter({hasText:'student@example.com'})).toContainText('Đã khóa');
 });
 
-test('lecturer deletes a draft exam and clears its selection',async({page})=>{
+test('lecturer deletes a draft exam from the list',async({page})=>{
   const draft={...exam,status:'DRAFT',mainQuestionCount:1,maxFollowupsPerQuestion:1,maxFollowupsPerStudent:2,answerTimeLimitSeconds:120};let removed=false;
   await login(page,'LECTURER',async(route,path)=>{
+    if(path==='/api/v1/exams/e1/monitor'){await route.fulfill({json:{candidates:[]}});return true;}
     if(path==='/api/v1/exams'){await route.fulfill({json:removed?[]:[draft]});return true;}
     if(path==='/api/v1/exams/e1'){
       if(route.request().method()==='DELETE'){removed=true;await route.fulfill({body:''});}else await route.fulfill({json:draft});return true;
     }
     if(['/api/v1/exams/e1/questions','/api/v1/exams/e1/candidates','/api/v1/courses/c1/students','/api/v1/courses/c1/questions'].includes(path)){await route.fulfill({json:[]});return true;}
   });
-  await page.getByRole('navigation').getByRole('button',{name:'Ca thi vấn đáp',exact:true}).click();await page.getByLabel('Kỳ thi cần mở').selectOption('e1');await page.getByRole('button',{name:'Tìm kỳ thi',exact:true}).click();
-  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Xóa kỳ thi nháp',exact:true}).click();
-  await expect(page.getByText('Đã xóa kỳ thi nháp.',{exact:true})).toBeVisible();await expect(page.getByLabel('Kỳ thi cần mở')).toHaveValue('');
-  await expect(page.getByLabel('Kỳ thi cần mở').getByRole('option',{name:/Ca thi kiến trúc/})).toHaveCount(0);
+  await page.getByRole('navigation').getByRole('button',{name:'Ca thi vấn đáp',exact:true}).click();
+  await page.getByRole('row').filter({hasText:draft.title}).getByRole('button',{name:'Xóa',exact:true}).click();
+  const confirmation=page.getByRole('dialog',{name:'Bạn chắc chắn muốn xóa?',exact:true});
+  await expect(confirmation).toBeVisible();await confirmation.getByRole('button',{name:'Xóa',exact:true}).click();
+  await expect(page.getByText('Đã xóa kỳ thi nháp.',{exact:true})).toBeVisible();
+  await expect(page.getByText('Chưa có dữ liệu',{exact:true})).toBeVisible();
+  await expect(page.getByRole('row').filter({hasText:draft.title})).toHaveCount(0);
 });

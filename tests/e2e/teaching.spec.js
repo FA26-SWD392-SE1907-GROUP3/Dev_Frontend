@@ -48,13 +48,15 @@ test('rubric loads saved criteria, adds missing points and publishes', async ({ 
   await page.getByRole('button', { name: 'Tiêu chí', exact: true }).click();
   await expect(page.getByText('Đúng nội dung', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Công bố rubric' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Thêm tiêu chí', exact: true }).click();
   await page.getByLabel('Tên tiêu chí').fill('Vận dụng');
   await page.getByLabel('Điểm', { exact: false }).last().fill('6');
   await page.getByLabel('Thứ tự').fill('2');
-  await page.getByRole('button', { name: 'Thêm tiêu chí', exact: true }).click();
+  await page.getByRole('button', { name: 'Lưu', exact: true }).click();
   await expect(page.getByText('Tổng điểm: 10.00 / 10.00')).toBeVisible();
   await page.getByRole('button', { name: 'Công bố rubric' }).click();
   await expect(page.getByText('Rubric đã công bố.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: '← Quay lại danh sách', exact: true }).click();
   await page.getByRole('button', { name: 'Tiêu chí', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'Vận dụng', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/rubrics.png', fullPage: true });
@@ -77,8 +79,9 @@ test('materials support upload, indexing, text preview and download without an A
   await login(page);
   await page.getByRole('button', { name: /Tài liệu/i }).first().click();
   await page.getByLabel('Môn học').selectOption('c1');
+  await page.getByRole('button', { name: '+ Tải tài liệu lên', exact: true }).first().click();
   await page.locator('input[type=file]').setInputFiles({ name: 'lecture.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from('fixture') });
-  await page.getByRole('button', { name: 'Tải tài liệu lên', exact: true }).click();
+  await page.getByRole('button', { name: 'Lưu', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'Đã tải lên', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Xử lý văn bản', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'Sẵn sàng', exact: true })).toBeVisible();
@@ -87,6 +90,7 @@ test('materials support upload, indexing, text preview and download without an A
   const downloaded = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Tải xuống', exact: true }).click();
   expect((await downloaded).suggestedFilename()).toBe('lecture.docx');
+  await page.getByRole('button', { name: 'Nhờ AI tạo câu hỏi', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sinh câu hỏi AI', exact: true })).toBeDisabled();
   await page.screenshot({ path: 'test-results/materials.png', fullPage: true });
 });
@@ -101,7 +105,7 @@ test('AI questions show source evidence and can be reviewed before use', async (
     if (path === '/api/v1/courses/c1/generation-jobs') {
       if (route.request().method() === 'POST') {
         const body = route.request().postDataJSON();
-        expect(body.materialIds).toEqual(['m1']); expect(body.rubricId).toBe('r1'); expect(body.desiredCount).toBe(2);
+        expect(body.materialIds).toEqual(['m1']); expect(body).not.toHaveProperty('rubricId');expect(body).not.toHaveProperty('bloomLevel'); expect(body.desiredCount).toBe(2);
         job = { id: 'job1', status: 'COMPLETED', generatedCount: 2, createdAt: new Date().toISOString() };
         await route.fulfill({ status: 201, json: job });
       } else await route.fulfill({ json: job ? [job] : [] });
@@ -115,8 +119,8 @@ test('AI questions show source evidence and can be reviewed before use', async (
   await login(page);
   await page.getByRole('button', { name: /Tài liệu/i }).first().click();
   await page.getByLabel('Môn học').selectOption('c1');
+  await page.getByRole('button', { name: 'Nhờ AI tạo câu hỏi', exact: true }).click();
   await page.getByRole('checkbox', { name: 'architecture.docx' }).check();
-  await page.getByLabel('Rubric đã công bố').selectOption('r1');
   await page.getByLabel('Số câu hỏi', { exact: false }).fill('2');
   await page.getByRole('button', { name: 'Sinh câu hỏi AI', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'COMPLETED', exact: true })).toBeVisible();

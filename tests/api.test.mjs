@@ -149,8 +149,8 @@ test('download errors retain backend permission explanation', async () => {
   await assert.rejects(api.downloadMaterial('m1'), error => error.status === 403 && /chưa được phân công/.test(error.message));
 });
 
-test('generation request carries selected materials and rubric', async () => {
-  const body = { materialIds: ['m1'], rubricId: 'r1', desiredCount: 3, bloomLevel: 'APPLY', difficulty: 'MEDIUM' };
+test('generation request carries selected materials and one difficulty level', async () => {
+  const body = { materialIds: ['m1'], desiredCount: 3, difficulty: 'MEDIUM' };
   globalThis.fetch = async (url, options) => {
     assert.equal(url, '/api/v1/courses/c1/generation-jobs');
     assert.deepEqual(JSON.parse(options.body), body);
