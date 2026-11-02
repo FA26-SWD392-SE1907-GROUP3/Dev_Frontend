@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { createWebSpeech } from '../services/webSpeech';
+import InterviewCallRoom from './InterviewCallRoom';
+import '../interview-call.css';
 import AttemptGrade from './common/AttemptGrade';
 import { button, input, Heading, Panel, Notice, State } from './api/parts';
 
@@ -11,9 +13,19 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [voiceError, setVoiceError] = useState('');
   const [now, setNow] = useState(Date.now());
   const [delivery, setDelivery] = useState(0);
+  const [joined,setJoined]=useState(false),[micMuted,setMicMuted]=useState(false),[textMode,setTextMode]=useState(false);
+  const [captions,setCaptions]=useState(true),[transcriptOpen,setTranscriptOpen]=useState(false),[fullscreen,setFullscreen]=useState(false);
+  const [spoken,setSpoken]=useState(''),[joinedAt,setJoinedAt]=useState(null);
+  const mutedRef=useRef(false),greeted=useRef(false);
+  const lastPresented=useRef('');
+  const lastPrompt=useRef('');
+  const plannedSpeech=useRef(null);
+  const checkpointRef=useRef(null);
+  const draftFlight=useRef(null),draftRevision=useRef(Date.now()),lastCheckpoint=useRef(''),expiredPrompt=useRef(null),autoContinued=useRef(null);
+  const draftRef=useRef('');draftRef.current=draft;
   const mounted = useRef(true), state = useRef(null), voice = useRef(null), running = useRef(false);
   const controller = useRef(null), poll = useRef(null), begin = useRef(null), pending = useRef(null);
-  const sendRef = useRef(null), flight = useRef(null), latestText = useRef(''), finishing = useRef(false);
+  const sendRef = useRef(null), latestText = useRef('');
   const prompt = session?.prompt;
   const clockOffset = useRef(0);
   const remaining = prompt?.deadline ? Math.max(0, Date.parse(prompt.deadline) - (now - clockOffset.current)) : null;
@@ -34,7 +46,7 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
   }
   function beginListening() {
     const current = state.current;
-    if (!current?.prompt || current.status !== 'IN_PROGRESS' || finishing.current) return;
+    if (!current?.prompt || current.status !== 'IN_PROGRESS') return;
     if (begin.current?.id === current.prompt.id) return;
     const promise = api.beginInterviewAnswer(current.attemptId, current.prompt.id).then(accept).catch(e => {
       if (mounted.current) { setError(e.message); voice.current?.pause(); setPhase('blocked'); }
@@ -43,25 +55,58 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
     // Keep the rejection handled even when the user never submits an answer.
     promise.catch(() => {}); begin.current = { id: current.prompt.id, promise };
   }
+  async function checkpoint() {
+    const current=state.current;
+    const text=(textMode?draftRef.current:latestText.current).slice(0,12000);
+    if(!joined||running.current||!current?.prompt?.deadline||draftFlight.current||!text.trim())return;
+    const signature=current.prompt.id+':'+text;
+    if(signature===lastCheckpoint.current)return;
+    const promise=(async()=>{
+      try{
+        if(begin.current?.id===current.prompt.id)await begin.current.promise;
+        await api.checkpointInterview(current.attemptId,current.prompt.id,++draftRevision.current,text);
+        lastCheckpoint.current=signature;
+      }catch{/* A final submission or server timeout resolves checkpoints racing the deadline. */}
+      finally{
+        draftFlight.current=null;
+        const latest=textMode?draftRef.current:latestText.current;
+        if(mounted.current&&state.current?.prompt?.id===current.prompt.id&&latest!==text)
+          queueMicrotask(()=>checkpointRef.current?.());
+      }
+    })();
+    draftFlight.current=promise;return promise;
+  }
+  checkpointRef.current=checkpoint;
   function buildVoice() {
     voice.current?.stop();
     voice.current = createWebSpeech({
-      onTranscript: text => { latestText.current = text; if (mounted.current) setLive(text); },
+      onTranscript: text => { latestText.current = text; if (mounted.current) { setLive(text);void checkpointRef.current?.(); } },
       onAnswer: text => sendRef.current?.(text),
       onPhase: value => { if (mounted.current) setPhase(value); },
       onListening: beginListening,
       onFallback: message => {
         if (!mounted.current) return;
         setVoiceError(message); setVoiceEnabled(false); setPhase('text');
+        setTextMode(true);
         setDraft(value => latestText.current || value); beginListening();
       },
     });
     return voice.current.start();
   }
-  async function start() {
+  function toggleMic() {
+    const next=!mutedRef.current;mutedRef.current=next;setMicMuted(next);voice.current?.setMuted(next);
+  }
+  function switchToText() {
+    mutedRef.current=false;setMicMuted(false);
+    voice.current?.stop();setVoiceEnabled(false);setTextMode(true);setJoined(true);
+    setDraft(latestText.current||draft);setPhase('text');
+    if(!attemptId)start(false);else beginListening();
+  }
+  async function start(useVoice = true) {
     if (running.current) return;
     running.current = true; setBusy(true); setError(''); setVoiceError('');
-    const enabled = buildVoice(); setVoiceEnabled(enabled);
+    mutedRef.current=false;setMicMuted(false);setTextMode(!useVoice);
+    const enabled = useVoice && buildVoice(); setVoiceEnabled(enabled);
     try {
       let id = attemptId;
       if (!id) {
@@ -70,12 +115,13 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
         setAttemptId(id); onAttemptSaved?.(id);
       }
       accept(await api.interview(id));
+      if(mounted.current){setJoined(true);setJoinedAt(value=>value||Date.now());setDelivery(value=>value+1);if(!enabled){setTextMode(true);beginListening();}}
     } catch (e) { if (mounted.current) { setError(e.message); voice.current?.stop(); setVoiceEnabled(false); } }
     finally { running.current = false; if (mounted.current) setBusy(false); }
   }
   async function send(text, retry = null) {
     const current = state.current;
-    if (running.current || finishing.current || !current || current.status !== 'IN_PROGRESS') return;
+    if (running.current || !current || current.status !== 'IN_PROGRESS') return;
     const saved = retry || { promptId: current.prompt?.id, text: text?.trim() };
     if (!saved.promptId || !saved.text) return;
     running.current = true; setBusy(true); setError(''); setPartial(''); setPhase('thinking');
@@ -85,6 +131,7 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
     const operation = (async () => {
       try {
         if (begin.current?.id === saved.promptId) await begin.current.promise;
+        await draftFlight.current;
         const value = await api.streamInterviewAnswer(current.attemptId, saved.promptId, saved.text, {
           signal: abort.signal,
           onEvent: (event, payload) => {
@@ -94,6 +141,7 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
               sessionStorage.setItem(storageKey(current.attemptId), JSON.stringify(saved));
             }
             if (event === 'delta') setPartial(value => value + payload.text);
+            if (event === 'speech') plannedSpeech.current=payload;
           },
         });
         if (!mounted.current) return;
@@ -109,7 +157,7 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
         if (mounted.current) setBusy(false);
       }
     })();
-    flight.current = operation; await operation;
+    await operation;
   }
   sendRef.current = send;
   async function resume() {
@@ -120,29 +168,12 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
     const operation = (async () => {
       try {
         const value = await api.streamInterviewContinue(attemptId, session.answerTurnId, { signal: abort.signal,
-          onEvent: (event, payload) => { if (mounted.current && event === 'delta') setPartial(text => text + payload.text); } });
-        if (mounted.current) { setPartial(''); accept(value); setDelivery(value => value + 1); }
+          onEvent: (event, payload) => { if (!mounted.current)return;if(event==='delta')setPartial(text => text + payload.text);if(event==='speech')plannedSpeech.current=payload; } });
+        if (mounted.current) { latestText.current='';setLive('');setPartial(''); accept(value); setDelivery(value => value + 1); }
       } catch (e) { if (mounted.current && !abort.signal.aborted) setError(e.message); }
       finally { running.current = false; if (mounted.current) setBusy(false); }
     })();
-    flight.current = operation; await operation;
-  }
-  async function finish() {
-    if (finishing.current) return;
-    voice.current?.stop(); setVoiceEnabled(false);
-    // Submit captured words before closing; an in-flight answer is already being persisted.
-    if (!running.current && (latestText.current.trim() || draft.trim()) && state.current?.prompt)
-      await send(latestText.current || draft);
-    finishing.current = true; await flight.current;
-    if (pending.current && !pending.current.acknowledged) {
-      finishing.current = false;
-      setError('Chưa xác nhận lưu được câu trả lời. Hãy thử tiếp tục trước khi kết thúc để giữ đủ hội thoại.');
-      return;
-    }
-    setBusy(true); setPhase('thinking');
-    try { accept(await api.finishInterview(attemptId)); pending.current = null; sessionStorage.removeItem(storageKey(attemptId)); }
-    catch (e) { if (mounted.current) setError(e.message); }
-    finally { finishing.current = false; if (mounted.current) setBusy(false); }
+    await operation;
   }
   useEffect(() => {
     mounted.current = true;
@@ -157,50 +188,94 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
     return () => { clearInterval(timer); poll.current?.abort(); };
   }, [attemptId]);
   useEffect(() => {
-    if (!prompt) return;
-    latestText.current = ''; setLive(''); setPartial(''); begin.current = null;
-    setDraft(sessionStorage.getItem(`aives-answer-${attemptId}-${prompt.id}`) || '');
-    if (voiceEnabled && !pending.current) voice.current?.present(prompt.text);
-    else beginListening();
-  }, [prompt?.id, voiceEnabled, delivery]);
+    if (!prompt || !joined) return;
+    const signature=`${prompt.id}:${delivery}:${voiceEnabled}`;
+    if(lastPresented.current===signature)return;
+    lastPresented.current=signature;
+    if(lastPrompt.current!==prompt.id){
+      lastPrompt.current=prompt.id;latestText.current='';setLive('');setPartial('');begin.current=null;
+      setDraft(sessionStorage.getItem(`aives-answer-${attemptId}-${prompt.id}`)||'');
+    }
+    if (voiceEnabled && !pending.current) {
+      const greeting=greeted.current?'': 'Chào em, tôi là giám khảo AI trong buổi vấn đáp hôm nay. Em cứ trao đổi tự nhiên; nếu chưa rõ câu hỏi, em có thể hỏi lại nhé. ';
+      const transition=greeted.current&&prompt.kind==='MAIN_QUESTION'?'Tôi đã ghi nhận. Chúng ta trao đổi tiếp nhé. ':'';
+      const words=plannedSpeech.current?.promptId===prompt.id?plannedSpeech.current.text:transition+prompt.text;
+      plannedSpeech.current=null;greeted.current=true;setSpoken(greeting+words);
+      voice.current?.present(words,{introduction:greeting});voice.current?.setMuted(mutedRef.current);
+    } else if(textMode)beginListening();
+  }, [prompt?.id, voiceEnabled, delivery, joined, textMode]);
+  useEffect(()=>{
+    if(!joined||!prompt?.deadline)return;
+    const timer=setInterval(()=>{void checkpoint();},500);
+    return()=>clearInterval(timer);
+  },[joined,prompt?.id,prompt?.deadline,textMode]);
+  useEffect(()=>{
+    if(!joined||!prompt?.deadline||remaining!==0||busy||expiredPrompt.current===prompt.id)return;
+    expiredPrompt.current=prompt.id;voice.current?.pause();
+    const id=session.attemptId,expected=prompt.id;
+    (async()=>{
+      await draftFlight.current;
+      try{accept(await api.timeoutInterview(id,expected));}
+      catch(e){if(mounted.current){setError(e.message);expiredPrompt.current=null;}}
+    })();
+  },[joined,prompt?.id,remaining,busy]);
+  useEffect(()=>{
+    if(!joined||!session?.needsContinuation||session.busy||busy||pending.current||autoContinued.current===session.answerTurnId)return;
+    autoContinued.current=session.answerTurnId;void resume();
+  },[joined,session?.needsContinuation,session?.answerTurnId,session?.busy,busy]);
   useEffect(() => {
     if (attemptId && prompt) sessionStorage.setItem(`aives-answer-${attemptId}-${prompt.id}`, draft);
   }, [attemptId, prompt?.id, draft]);
   useEffect(() => {
     if (!session || session.status === 'IN_PROGRESS') return;
-    voice.current?.stop(); setVoiceEnabled(false); setPhase('finished');
+    const closing=plannedSpeech.current?.text;
+    plannedSpeech.current=null;
+    if(closing&&voiceEnabled)voice.current?.closeWith(closing);else voice.current?.stop();
+    setJoined(false); setVoiceEnabled(false); setPhase('finished');setFullscreen(false);
   }, [session?.status]);
+  useEffect(()=>{
+    if(!fullscreen)return;
+    const previous=document.body.style.overflow;document.body.style.overflow='hidden';
+    const close=event=>{if(event.key==='Escape')setFullscreen(false);};document.addEventListener('keydown',close);
+    return()=>{document.body.style.overflow=previous;document.removeEventListener('keydown',close);};
+  },[fullscreen]);
+  function replayQuestion(){
+    if(!prompt||busy||session?.busy)return;
+    if(!voiceEnabled){start();return;}
+    setSpoken(prompt.text);voice.current?.present(prompt.text,{preserveTranscript:true});
+    voice.current?.setMuted(mutedRef.current);
+  }
+  const inProgress=!session||session.status==='IN_PROGRESS';
   return <section className="space-y-5">
-    <Heading title="Phòng phỏng vấn AI" subtitle="Trò chuyện liên tục bằng tiếng Việt." action={<div className="flex gap-2">
-      <button className={button} disabled={busy} onClick={() => { voice.current?.stop(); onLegacy?.(); }}>Chuyển sang chế độ dự phòng</button>
-      <button className={button} disabled={busy} onClick={onBack}>← Quay lại</button></div>} />
-    <Notice>AI nói xong sẽ tự nghe bạn. Ngừng nói khoảng 1,5 giây để chuyển lượt. Bạn có thể nói chen để ngắt giọng AI; nên dùng tai nghe.</Notice>
-    <State error={error || session?.error} /><State error={voiceError} />
-    {!attemptId && <Panel title="Sẵn sàng vào thi"><button className={button} disabled={busy} onClick={start}>Bắt đầu lượt thi</button></Panel>}
-    {attemptId && !session && <p role="status">Đang tải lượt thi...</p>}
-    {attemptId && !session && error && <button className={button} onClick={() => refresh()}>Tải lại lượt thi</button>}
-    {session && <>
-      <div className="flex justify-between gap-3 text-sm"><p>Câu chính: {session.completedQuestions}/{session.questionCount} · Tổng đào sâu: {session.followupsUsed || 0}/{session.maxFollowups}</p><p>Kết thúc ca: {new Date(session.scheduledEnd).toLocaleString('vi-VN')}</p></div>
-      {session.status === 'IN_PROGRESS' && <section className="interview-call rounded-2xl bg-slate-950 text-white p-6 space-y-4" aria-label="Cuộc phỏng vấn trực tiếp">
-        <p role="status">{busy || session.busy ? 'AI đang suy nghĩ' : ({ ready: 'Sẵn sàng', speaking: 'AI đang nói', listening: 'Đang nghe bạn', text: 'Trả lời bằng văn bản', blocked: 'Cần thử lại', thinking: 'AI đang suy nghĩ' })[phase]}</p>
-        {prompt && <><h2 className="font-semibold">{prompt.followupNumber ? `Câu ${prompt.sequenceNo} · Hỏi đào sâu ${prompt.followupNumber}` : `Câu chính ${prompt.sequenceNo}/${session.questionCount}`}</h2><p className="whitespace-pre-wrap text-lg">{prompt.text}</p>
-          {remaining !== null && <p role="timer">Thời gian còn lại: {Math.ceil(remaining / 1000)} giây</p>}</>}
-        <div className="rounded-lg bg-slate-800 p-4 min-h-24" aria-live="polite"><p>{live || 'Lời nói của bạn sẽ hiện ở đây.'}</p></div>
-        {partial && <p className="whitespace-pre-wrap" aria-live="polite">{partial}</p>}
-        {!voiceEnabled && <button className={button} disabled={busy} onClick={start}>Tham gia phỏng vấn</button>}
-        {voiceEnabled && phase === 'blocked' && <button className={button} disabled={busy} onClick={start}>Thử lại giọng nói</button>}
-        {voiceEnabled && <button className={button} disabled={busy} onClick={() => { voice.current?.stop(); setVoiceEnabled(false); setDraft(latestText.current || draft); beginListening(); }}>Chuyển sang gõ chữ</button>}
-        <button className={button} onClick={finish} disabled={finishing.current}>Kết thúc</button>
+    <Heading title="Phỏng vấn trực tiếp" subtitle="Một cuộc trò chuyện cùng giám khảo AI." action={<button className={button} disabled={busy} onClick={()=>{voice.current?.stop();onBack?.();}}>← Quay lại</button>}/>
+    <State error={error||session?.error}/><State error={voiceError}/>
+    {inProgress&&<InterviewCallRoom phase={phase} joined={joined} muted={micMuted} followupsRemaining={Math.max(0,Math.min(session?.maxFollowupsPerQuestion-(prompt?.followupNumber||0),session?.maxFollowups-session?.followupsUsed))}
+      captions={captions} transcriptOpen={transcriptOpen} live={live} spoken={partial||spoken} busy={busy||session?.busy} remaining={remaining}
+      elapsed={joinedAt?Math.max(0,Math.floor((now-joinedAt)/1000)):0} fullscreen={fullscreen} 
+      onJoin={()=>start()} onMic={toggleMic} onCaptions={()=>setCaptions(value=>!value)} onTranscript={()=>setTranscriptOpen(value=>!value)}
+      question={prompt?.text} onReplay={replayQuestion} onText={switchToText} onFullscreen={()=>setFullscreen(value=>!value)}/>}
+    {attemptId&&!session&&<p role="status">Đang tải lượt thi...</p>}
+    {attemptId&&!session&&error&&<button className={button} onClick={()=>refresh()}>Tải lại lượt thi</button>}
+    {session&&<>
+      <div className="call-metadata"><span>Tiến độ buổi phỏng vấn: {session.completedQuestions}/{session.questionCount}</span><span>Kết thúc ca: {new Date(session.scheduledEnd).toLocaleString('vi-VN')}</span></div>
+      {joined&&phase==='blocked'&&voiceEnabled&&!pending.current&&<button className={button} disabled={busy} onClick={()=>start()}>Thử lại giọng nói</button>}
+      {session.status==='IN_PROGRESS'&&joined&&textMode&&prompt&&<Panel title="Trao đổi bằng văn bản">
+        <p className="text-sm whitespace-pre-wrap">{prompt.text}</p>
+        <form onSubmit={event=>{event.preventDefault();send(draft);}} className="space-y-3"><label className="block">Câu trả lời<textarea aria-label="Câu trả lời" className={input} rows={3} maxLength={12000} value={draft} disabled={busy} onChange={event=>setDraft(event.target.value)}/></label>
+          <div className="flex flex-wrap gap-2"><button className={button} disabled={busy||!draft.trim()}>Gửi câu trả lời</button><button type="button" className={button} disabled={busy} onClick={()=>start()}>Trở lại trò chuyện giọng nói</button></div>
+        </form>
+      </Panel>}
+      {(pending.current||session.needsContinuation)&&session.status==='IN_PROGRESS'&&<button className={button} disabled={busy||session.busy} onClick={resume}>Thử tiếp tục câu trả lời đã lưu</button>}
+      {session.status==='COMPLETED'&&<><Notice>Đã hoàn thành lượt thi. AI chấm toàn bài theo rubric của kỳ thi.</Notice><AttemptGrade attemptId={attemptId}/></>}
+      {session.status==='ABORTED'&&<Notice>Lượt thi đã dừng. Hội thoại đã nộp vẫn được lưu.</Notice>}
+      {(transcriptOpen||session.status!=='IN_PROGRESS')&&<section className="call-transcript-drawer" aria-label="Hội thoại đã lưu">
+        <div className="call-transcript-heading"><h2>Hội thoại đã lưu</h2>{session.status==='IN_PROGRESS'&&<button type="button" onClick={()=>setTranscriptOpen(false)}>Đóng hội thoại</button>}</div>
+        <div className="call-transcript-messages">{session.turns.map(turn=><article key={turn.id} className={turn.speaker==='STUDENT'?'student-message':''}><strong>{turn.speaker==='AI'?'Giám khảo AI':'Bạn'}</strong><p className="whitespace-pre-wrap">{turn.text}</p></article>)}
+          {live&&<article className="student-message"><strong>Bạn · Đang nói</strong><p>{live}</p></article>}
+          {partial&&<article><strong>Giám khảo AI · Đang phản hồi</strong><p>{partial}</p></article>}
+        </div>
       </section>}
-      {session.status === 'IN_PROGRESS' && !voiceEnabled && prompt && <Panel title="Trả lời bằng văn bản"><form onSubmit={e => { e.preventDefault(); send(draft); }} className="space-y-3">
-        <label className="block">Câu trả lời<textarea className={input} rows={4} maxLength={12000} value={draft} disabled={busy} onChange={e => setDraft(e.target.value)} /></label>
-        <button className={button} disabled={busy || !draft.trim()}>Gửi câu trả lời</button></form></Panel>}
-      {(pending.current || session.needsContinuation) && session.status === 'IN_PROGRESS' && <button className={button} disabled={busy || session.busy} onClick={resume}>Thử tiếp tục câu trả lời đã lưu</button>}
-      {session.status === 'COMPLETED' && <><Notice>Đã hoàn thành lượt thi. AI chấm toàn bài theo rubric của kỳ thi.</Notice><AttemptGrade attemptId={attemptId} /></>}
-      {session.status === 'ABORTED' && <Notice>Lượt thi đã dừng. Hội thoại đã nộp vẫn được lưu.</Notice>}
-      <Panel title="Hội thoại đã lưu"><div className="space-y-3">{session.turns.map(turn => <article key={turn.id} className={`rounded-lg border border-appborder p-3 ${turn.speaker === 'AI' ? 'bg-primary-light' : ''}`}>
-        <p className="text-sm font-semibold">{turn.speaker === 'AI' ? 'Giám khảo AI' : 'Bạn'} · Câu {turn.sequenceNo}</p><p className="whitespace-pre-wrap">{turn.text}</p>
-      </article>)}</div></Panel>
     </>}
+    <details className="text-xs text-mutedtext"><summary className="cursor-pointer">Tùy chọn kết nối</summary><p className="my-3">Cuộc vấn đáp sử dụng micro. Nếu trình duyệt không nhận giọng nói, em có thể tiếp tục bằng văn bản.</p><button className={button} disabled={busy} onClick={()=>{voice.current?.stop();onLegacy?.();}}>Chuyển sang chế độ dự phòng</button></details>
   </section>;
 }

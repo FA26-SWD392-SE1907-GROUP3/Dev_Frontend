@@ -1,6 +1,7 @@
 import AttemptGrade from './common/AttemptGrade';
 import React, { useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, CalendarDays, UserRound, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, UserRound, RefreshCw, BookOpen } from 'lucide-react';
+import StudentMaterials from './StudentMaterials';
 import Interview from './Interview';
 import ChangePassword from './common/ChangePassword';
 import { api } from '../services/api';
@@ -70,15 +71,15 @@ export default function StudentWorkspace({ user }) {
     } catch (err) { setError(err.message || 'Không thể tải lịch sử lượt thi.'); }
     finally { setAttemptLoading(''); }
   }
-  const menu = [['overview', 'Tổng quan', LayoutDashboard], ['schedules', 'Lịch thi / Phòng thi', CalendarDays], ['profile', 'Tài khoản', UserRound]];
+  const menu = [['overview', 'Tổng quan', LayoutDashboard], ['schedules', 'Lịch thi / Phòng thi', CalendarDays], ['materials','Tài liệu học tập',BookOpen], ['profile', 'Tài khoản', UserRound]];
   return <div className="workspace-layout flex min-h-[calc(100vh-80px)]">
     <aside className="workspace-nav"><p className="nav-caption">KHÔNG GIAN SINH VIÊN</p>
-      {menu.map(([key, title, Icon]) => <button key={key} className={`nav-item ${tab === key ? 'active' : ''}`} onClick={() => { setTab(key); setRoom(null); setAttempts({}); if (key !== 'profile') loadExams(); }}><Icon size={18}/>{title}</button>)}
+      {menu.map(([key, title, Icon]) => <button key={key} className={`nav-item ${tab === key ? 'active' : ''}`} onClick={() => { setTab(key); setRoom(null); setAttempts({}); if (key === 'overview'||key==='schedules') loadExams(); }}><Icon size={18}/>{title}</button>)}
     </aside>
     <main className="workspace-content flex-1 min-w-0 p-6 md:p-8 space-y-5">
       {room ? <Interview key={room.candidateId} candidateId={room.candidateId} attemptId={room.attemptId} onBack={() => { setRoom(null); setAttempts({}); loadExams(); }} onAttemptSaved={updateAttempt}/> : <>
-        <Heading title={tab === 'profile' ? 'Tài khoản của tôi' : `Xin chào, ${user.fullName || user.email}`} subtitle={tab === 'profile' ? 'Thông tin tài khoản từ Spring Boot.' : 'Lịch thi được đồng bộ trực tiếp từ backend.'}/>
-        {tab === 'profile' ? <><Panel title="Hồ sơ"><p><b>Họ tên:</b> {user.fullName || '—'}</p><p><b>Email:</b> {user.email}</p><p><b>Vai trò:</b> {user.role}</p></Panel><ChangePassword user={user}/></> : <>
+        <Heading title={tab === 'profile' ? 'Tài khoản của tôi' : tab==='materials'?'Tài liệu học tập':`Xin chào, ${user.fullName || user.email}`} subtitle={tab === 'profile' ? 'Thông tin tài khoản của bạn.' : tab==='materials'?'Xem và tải tài liệu các môn học bạn đã được ghi danh.':'Lịch thi của bạn.'}/>
+        {tab === 'profile' ? <><Panel title="Hồ sơ"><p><b>Họ tên:</b> {user.fullName || '—'}</p><p><b>Email:</b> {user.email}</p><p><b>Vai trò:</b> {user.role}</p></Panel><ChangePassword user={user}/></> : tab==='materials'?<StudentMaterials user={user}/>:<>
           {error && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-red-800">{error}</div>}
           <Panel title="Lịch thi của tôi">
             <div className="flex justify-end mb-3"><button type="button" className={button} onClick={loadExams} disabled={loading}><RefreshCw size={16} className="inline mr-2"/>{loading ? 'Đang tải...' : 'Làm mới'}</button></div>
@@ -87,12 +88,13 @@ export default function StudentWorkspace({ user }) {
                 <div className="flex flex-wrap justify-between gap-2"><strong>Kỳ thi: {exam.examTitle || 'Kỳ thi'}</strong><span>{displayStatus(exam.status)}</span></div>
                 <p className="text-sm">Bắt đầu: {displayTime(exam.scheduledStart)} · Kết thúc: {displayTime(exam.scheduledEnd)}</p>
                 
+                {examAction(exam)==='START'&&exam.attemptId&&<Notice>Giảng viên đã cấp một lượt thi lại theo lịch mới. Kết quả cũ được giữ trong lịch sử.</Notice>}
                 <div className="flex flex-wrap gap-2">
-                  {['START', 'RESUME'].includes(examAction(exam)) && <button type="button" className={button} disabled={!!opening || loading} onClick={() => openExam(exam.id)}>{opening === exam.id ? 'Đang mở...' : examAction(exam) === 'RESUME' ? 'Tiếp tục thi' : 'Vào phòng thi'}</button>}
-                  {examAction(exam) === 'VIEW' && <button type="button" className={button} onClick={() => loadAttempts(exam.id)} disabled={attemptLoading === exam.id}>{attemptLoading === exam.id ? 'Đang tải...' : 'Xem lượt thi'}</button>}
+                  {['START', 'RESUME'].includes(examAction(exam)) && <button type="button" className={button} disabled={!!opening || loading} onClick={() => openExam(exam.id)}>{opening === exam.id ? 'Đang mở...' : examAction(exam) === 'RESUME' ? 'Tiếp tục thi' : exam.attemptId?'Vào thi lại':'Vào phòng thi'}</button>}
+                  {(examAction(exam) === 'VIEW'||examAction(exam)==='START'&&exam.attemptId) && <button type="button" className={button} onClick={() => loadAttempts(exam.id)} disabled={attemptLoading === exam.id}>{attemptLoading === exam.id ? 'Đang tải...' : 'Xem lượt thi'}</button>}
                   {examAction(exam) === 'UNAVAILABLE' && <Notice>Lịch thi chưa sẵn sàng. Vui lòng liên hệ giảng viên.</Notice>}
                 </div>
-                {examAction(exam) === 'VIEW' && attempts[exam.id] && <div className="border-t pt-2 space-y-2">{attempts[exam.id].length === 0 ? <p className="text-sm">{exam.status === 'CANCELLED' ? 'Lịch thi đã bị hủy trước khi sinh viên bắt đầu. Chưa có lượt thi nào.' : 'Chưa có lượt thi nào.'}</p> : attempts[exam.id].map(a => <div key={a.id} className="text-sm space-y-1"><p>Lượt {a.attemptNo} — {displayStatus(a.status)}</p><p>Bắt đầu: {displayTime(a.startedAt)} · Kết thúc: {displayTime(a.endedAt)}</p>{a.status==='COMPLETED'&&<AttemptGrade attemptId={a.id}/>}</div>)}</div>}
+                {(examAction(exam) === 'VIEW'||examAction(exam)==='START'&&exam.attemptId) && attempts[exam.id] && <div className="border-t pt-2 space-y-2">{attempts[exam.id].length === 0 ? <p className="text-sm">{exam.status === 'CANCELLED' ? 'Lịch thi đã bị hủy trước khi sinh viên bắt đầu. Chưa có lượt thi nào.' : 'Chưa có lượt thi nào.'}</p> : attempts[exam.id].map(a => <div key={a.id} className="text-sm space-y-1"><p>Lượt {a.attemptNo} — {displayStatus(a.status)}</p><p>Bắt đầu: {displayTime(a.startedAt)} · Kết thúc: {displayTime(a.endedAt)}</p>{a.status==='COMPLETED'&&<AttemptGrade attemptId={a.id}/>}</div>)}</div>}
               </div>)}
             </div>}
           </Panel>

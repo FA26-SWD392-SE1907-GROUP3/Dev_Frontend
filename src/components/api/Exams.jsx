@@ -6,7 +6,7 @@ import StatusBadge from '../common/StatusBadge';
 import Toast from '../common/Toast';
 import { difficultyLabels } from '../common/questionLevels';
 
-const defaults={rubricId:'',title:'',mainQuestionCount:3,maxFollowupsPerStudent:6,maxFollowupsPerQuestion:2,selectionMode:'RANDOM',answerTimeLimitSeconds:120};
+const defaults={rubricId:'',title:'',mainQuestionCount:3,maxFollowupsPerStudent:6,maxFollowupsPerQuestion:2,selectionMode:'RANDOM',answerTimeLimitSeconds:60};
 const dateTime=value=>new Date(value).toLocaleString('vi-VN');
 const localTime=value=>{const d=new Date(value);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
 const numeric=form=>({rubricId:form.rubricId||null,title:form.title,mainQuestionCount:Number(form.mainQuestionCount),maxFollowupsPerQuestion:Number(form.maxFollowupsPerQuestion??2),maxFollowupsPerStudent:Number(form.maxFollowupsPerStudent??form.maxFollowupsPerQuestion??0),selectionMode:form.selectionMode||'RANDOM',answerTimeLimitSeconds:Number(form.answerTimeLimitSeconds)});
@@ -34,6 +34,7 @@ function Settings({form,onChange,rubrics}){
 function SelectedExam({initial,courses,onChanged,onDelete,onEdit,access,onRefreshAccess}){
   const [exam,setExam]=useState(initial),[questionId,setQuestionId]=useState('');
   const [studentEmail,setStudentEmail]=useState(''),[start,setStart]=useState(''),[end,setEnd]=useState('');
+  const [retake,setRetake]=useState(null),[retakeForm,setRetakeForm]=useState({start:'',end:'',reason:''}),[grantHistory,setGrantHistory]=useState(null);
   const [editingSchedule,setEditingSchedule]=useState(null),[reschedule,setReschedule]=useState({start:'',end:''});
   const questions=useRemote(()=>api.questions(exam.courseId),[exam.courseId]);
   const pool=useRemote(()=>api.examPool(exam.id),[exam.id]);
@@ -46,6 +47,7 @@ function SelectedExam({initial,courses,onChanged,onDelete,onEdit,access,onRefres
   const unchecked=!access||!!access.error;
   const locked=unchecked||access.count>0;
   async function activate(){
+    if(exam.status==='CLOSED'&&!window.confirm('Mở lại kỳ thi này? Kết quả cũ được giữ nguyên; thí sinh đã thi cần được cấp phép thi lại riêng.'))return;
     const result=await m.run(()=>api.activateExam(exam.id),'Đã kích hoạt kỳ thi. Sinh viên vào thi trong đúng khung giờ được phân.');
     if(result){setExam(result);onChanged(result);}
   }
@@ -59,6 +61,21 @@ function SelectedExam({initial,courses,onChanged,onDelete,onEdit,access,onRefres
     const result=await m.run(()=>api.rescheduleCandidate(exam.id,editingSchedule.id,{scheduledStart:new Date(reschedule.start).toISOString(),scheduledEnd:new Date(reschedule.end).toISOString()}),'Đã cập nhật khung giờ thi.');
     if(result)setEditingSchedule(null);
   }
+  async function saveRetake(event){
+    event.preventDefault();
+    if(new Date(retakeForm.start)>=new Date(retakeForm.end)||new Date(retakeForm.end)<=new Date()){
+      m.setError('Chọn lịch thi lại hợp lệ; giờ kết thúc phải ở tương lai và sau giờ bắt đầu.');return;
+    }
+    const result=await m.run(()=>api.grantRetake(exam.id,retake.id,{
+      previousAttemptId:retake.latestAttemptId,scheduledStart:new Date(retakeForm.start).toISOString(),
+      scheduledEnd:new Date(retakeForm.end).toISOString(),reason:retakeForm.reason.trim(),
+    }),'Đã cấp một lượt thi lại. Kết quả và hội thoại cũ được giữ nguyên.');
+    if(result){setRetake(null);setGrantHistory(null);}
+  }
+  async function showRetakes(candidate){
+    const result=await m.run(()=>api.retakeHistory(exam.id,candidate.id),'');
+    if(result)setGrantHistory({candidate,items:result});
+  }
   return <div className="space-y-5">
     <Panel title={`${exam.title} · ${exam.status}`}>
       <p>Môn học: <strong>{course?`${course.code} — ${course.name}`:'Đang tải môn học'}</strong></p>
@@ -66,13 +83,14 @@ function SelectedExam({initial,courses,onChanged,onDelete,onEdit,access,onRefres
       <p className="text-sm">Mỗi câu chính có tối đa {exam.maxFollowupsPerQuestion??2} lượt hỏi xoáy; vẫn bị chặn bởi tổng ngân sách đào sâu của sinh viên.</p>
       <p className="text-sm text-mutedtext">{exam.selectionMode==='ADAPTIVE'?'Thích ứng theo lịch sử sử dụng 20 lượt gần nhất, phân bố Bloom và độ khó; không suy đoán năng lực hay điểm sinh viên.':'Chọn ngẫu nhiên từ câu hỏi đã được giáo viên duyệt trong đề.'} Ưu tiên tránh lặp bộ câu hỏi của thí sinh thi ngay trước.</p>
       {!pool.loading&&readyCount>=exam.mainQuestionCount&&readyCount<2*exam.mainQuestionCount&&<Notice>Đề có {readyCount} câu cho {exam.mainQuestionCount} câu chính/sinh viên. Có thể phải trùng ít nhất {2*exam.mainQuestionCount-readyCount} câu giữa hai lượt liền nhau; thêm câu đã duyệt vào đề để giảm trùng.</Notice>}
-      <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={m.busy||locked||!isClosed(exam)} onClick={()=>onEdit(exam)}>Sửa cấu hình kỳ thi</Button><Button variant="danger" disabled={m.busy||locked} onClick={()=>{if(window.confirm('Bạn chắc chắn muốn xóa?'))m.run(()=>onDelete(exam),'');}}>Xóa</Button>{isClosed(exam)&&<button className={button} disabled={m.busy||pool.loading||!!pool.error||readyCount<exam.mainQuestionCount} onClick={activate}>Mở ca thi</button>}</div>
+      <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={m.busy||locked||!isClosed(exam)} onClick={()=>onEdit(exam)}>Sửa cấu hình kỳ thi</Button><Button variant="danger" disabled={m.busy||locked} onClick={()=>{if(window.confirm('Bạn chắc chắn muốn xóa?'))m.run(()=>onDelete(exam),'');}}>Xóa</Button>{isClosed(exam)&&<button className={button} disabled={m.busy||pool.loading||!!pool.error||readyCount<exam.mainQuestionCount} onClick={activate}>{exam.status==='CLOSED'?'Mở lại kỳ thi':'Mở ca thi'}</button>}</div>
       <p className="text-sm text-mutedtext">Chỉ xóa khi chưa có thí sinh tham gia. Chỉ sửa khi ca đang đóng hoặc chưa mở và chưa có thí sinh tham gia.</p>
       {access?.error&&<><p role="alert" className="text-sm text-danger-text">{access.error}</p><Button variant="secondary" onClick={onRefreshAccess}>Thử lại</Button></>}
       {isClosed(exam)&&readyCount<exam.mainQuestionCount&&<Notice>Cần ít nhất {exam.mainQuestionCount} câu đã duyệt trong đề trước khi kích hoạt. Hiện có {readyCount} câu hợp lệ.</Notice>}
       {exam.status==='ACTIVE'&&<><button className={button} disabled={m.busy} onClick={async()=>{if(!window.confirm(`Kết thúc kỳ thi ${exam.title}? Sinh viên chưa thi sẽ không thể bắt đầu lượt mới.`))return;const result=await m.run(()=>api.closeExam(exam.id),'Đã kết thúc kỳ thi. Lịch sử thi được giữ lại.');if(result){setExam(result);onChanged(result);}}}>Đóng ca thi</button><p className="text-sm text-mutedtext">Chỉ kết thúc sau khi không còn sinh viên đang thi. Sau khi kết thúc, sinh viên chưa thi sẽ không thể bắt đầu lượt mới.</p></>}
     </Panel>
     <State error={m.error} success={m.success}/>
+    {exam.status==='CLOSED'&&<Notice>Kỳ thi đang đóng. Có thể cấp lịch thi lại trước, sau đó mở lại kỳ thi để sinh viên vào đúng khung giờ mới. Mở lại không tự cấp thêm lượt cho người đã thi.</Notice>}
     <Panel title={`Câu hỏi trong đề (${pool.items.length})`}>
       <State error={pool.error||questions.error}/>
       {draft&&<form onSubmit={async e=>{e.preventDefault();const result=await m.run(()=>api.addExamQuestion(exam.id,questionId),'Đã thêm câu hỏi đã duyệt vào đề.');if(result)setQuestionId('');}} className="flex flex-wrap gap-2">
@@ -91,12 +109,35 @@ function SelectedExam({initial,courses,onChanged,onDelete,onEdit,access,onRefres
     </Panel>}
     <Panel title={`Danh sách thí sinh (${candidates.items.length})`}>
       <State error={candidates.error}/>
-      {candidates.loading?<p>Đang tải thí sinh...</p>:<Table rows={candidates.items} columns={[{key:'fullName',label:'Sinh viên'},{key:'studentEmail',label:'Email'},{key:'scheduledStart',label:'Bắt đầu',render:c=>dateTime(c.scheduledStart)},{key:'scheduledEnd',label:'Kết thúc',render:c=>dateTime(c.scheduledEnd)},{key:'status',label:'Trạng thái'}]} actions={c=>editable&&['REGISTERED','READY','IN_PROGRESS'].includes(c.status)?<div className="flex flex-wrap gap-2">
-        {['REGISTERED','READY'].includes(c.status)&&<button className={button} disabled={m.busy} onClick={()=>{setEditingSchedule(c);setReschedule({start:localTime(c.scheduledStart),end:localTime(c.scheduledEnd)});}}>Sửa lịch</button>}
-        <button className={button} disabled={m.busy} onClick={()=>m.run(()=>api.cancelCandidate(exam.id,c.id),'Đã hủy lịch thi. Lịch sử lượt thi và ghi danh môn học vẫn được giữ.')}>Hủy lịch thi</button>
-      </div>:<span className="text-sm text-mutedtext">Giữ lịch sử lượt thi</span>}/>}
+      {candidates.loading?<p>Đang tải thí sinh...</p>:<Table rows={candidates.items} columns={[{key:'fullName',label:'Sinh viên'},{key:'studentEmail',label:'Email'},{key:'scheduledStart',label:'Bắt đầu',render:c=>dateTime(c.scheduledStart)},{key:'scheduledEnd',label:'Kết thúc',render:c=>dateTime(c.scheduledEnd)},{key:'status',label:'Trạng thái'}]} actions={c=><div className="flex flex-wrap gap-2">
+        {editable&&['REGISTERED','READY'].includes(c.status)&&!c.retakePending&&!c.latestAttemptId&&<button className={button} disabled={m.busy} onClick={()=>{setEditingSchedule(c);setReschedule({start:localTime(c.scheduledStart),end:localTime(c.scheduledEnd)});}}>Sửa lịch</button>}
+        {(editable&&['REGISTERED','READY','IN_PROGRESS'].includes(c.status)||exam.status==='CLOSED'&&c.retakePending)&&<button className={button} disabled={m.busy} onClick={()=>m.run(()=>api.cancelCandidate(exam.id,c.id),'Đã hủy lịch thi. Lịch sử lượt thi và ghi danh môn học vẫn được giữ.')}>Hủy lịch thi</button>}
+        {['ACTIVE','CLOSED'].includes(exam.status)&&c.canRetake&&<button className={button} disabled={m.busy} onClick={()=>{setRetake(c);setRetakeForm({start:localTime(new Date()),end:localTime(new Date(Date.now()+30*60000)),reason:''});}}>Cho phép thi lại</button>}
+        {c.retakePending&&<span className="text-sm text-mutedtext">Đã cấp lịch thi lại · {c.retakeReason}</span>}
+        {c.latestAttemptId&&<button className={button} disabled={m.busy} onClick={()=>showRetakes(c)}>Lịch sử cấp thi lại</button>}
+        {!editable&&!c.canRetake&&!c.retakePending&&<span className="text-sm text-mutedtext">Giữ lịch sử lượt thi</span>}
+      </div>}/>}
       <p className="text-sm text-mutedtext">Chỉ sửa khung giờ trước khi sinh viên bắt đầu. Hủy lịch sẽ dừng lượt đang thi và giữ lịch sử đã nộp.</p>
     </Panel>
+    {retake&&<Panel title={'Cho phép thi lại: '+retake.fullName}>
+      <p className="text-sm text-mutedtext">Cấp một lượt thi mới, giữ nguyên mọi bài làm và điểm cũ. Sinh viên chỉ được vào khi kỳ thi đang mở và đúng lịch mới.</p>
+      <form onSubmit={saveRetake} className="grid gap-3 md:grid-cols-2">
+        <Field label="Bắt đầu thi lại" required><input className={input} type="datetime-local" required disabled={m.busy} value={retakeForm.start} onChange={e=>setRetakeForm({...retakeForm,start:e.target.value})}/></Field>
+        <Field label="Kết thúc thi lại" required><input className={input} type="datetime-local" required disabled={m.busy} value={retakeForm.end} onChange={e=>setRetakeForm({...retakeForm,end:e.target.value})}/></Field>
+        <Field label="Lý do cho thi lại" required><textarea className={input} required maxLength={1000} disabled={m.busy} value={retakeForm.reason} onChange={e=>setRetakeForm({...retakeForm,reason:e.target.value})}/></Field>
+        <div className="flex gap-2"><button className={button} disabled={m.busy||!retakeForm.reason.trim()}>Xác nhận cho thi lại</button><button type="button" className={button} disabled={m.busy} onClick={()=>setRetake(null)}>Hủy cấp thi lại</button></div>
+      </form>
+    </Panel>}
+    {grantHistory&&<Panel title={'Lịch sử cấp thi lại: '+grantHistory.candidate.fullName}>
+      {grantHistory.items.length===0?<p>Chưa có lần cấp thi lại nào.</p>:<Table rows={grantHistory.items} columns={[
+        {key:'nextAttemptNo',label:'Lượt mới'},{key:'reason',label:'Lý do'},
+        {key:'grantedAt',label:'Ngày cấp',render:g=>dateTime(g.grantedAt)},
+        {key:'scheduledStart',label:'Bắt đầu',render:g=>dateTime(g.scheduledStart)},
+        {key:'scheduledEnd',label:'Kết thúc',render:g=>dateTime(g.scheduledEnd)},
+        {key:'status',label:'Trạng thái',render:g=>g.revokedAt?'Đã hủy':g.consumedAt?'Đã sử dụng':new Date(g.scheduledEnd)<=new Date()?'Hết hạn':'Chưa sử dụng'},
+      ]}/>}
+      <button className={button} onClick={()=>setGrantHistory(null)}>Đóng lịch sử cấp thi lại</button>
+    </Panel>}
     {editingSchedule&&<Panel title={`Đổi lịch: ${editingSchedule.fullName}`}><form onSubmit={saveSchedule} className="grid md:grid-cols-2 gap-3"><Field label="Bắt đầu mới" required><input className={input} type="datetime-local" required value={reschedule.start} onChange={e=>setReschedule({...reschedule,start:e.target.value})}/></Field><Field label="Kết thúc mới" required><input className={input} type="datetime-local" required value={reschedule.end} onChange={e=>setReschedule({...reschedule,end:e.target.value})}/></Field><button className={button} disabled={m.busy}>Lưu lịch thi</button><button className={button} type="button" onClick={()=>setEditingSchedule(null)}>Hủy đổi lịch</button></form></Panel>}
   </div>;
 }
@@ -145,6 +186,7 @@ export default function Exams(){
       if(!isClosed(current))throw new Error('Ca thi không ở trạng thái đóng hoặc chưa mở. Vui lòng tải lại danh sách.');
       const readyCount=Array.isArray(pool)?pool.filter(q=>q.status==='APPROVED').length:0;
       if(readyCount<Number(current.mainQuestionCount||defaults.mainQuestionCount))throw new Error('Cần đủ câu hỏi đã duyệt trong đề trước khi mở ca thi.');
+      if(current.status==='CLOSED'&&!window.confirm('Mở lại kỳ thi này? Kết quả cũ được giữ nguyên; thí sinh đã thi cần được cấp phép thi lại riêng.'))return;
       await api.activateExam(row.id);list.reload();setToast('Đã kích hoạt kỳ thi. Sinh viên vào thi trong đúng khung giờ được phân.');
     }catch(failure){setError(failure.message);}finally{setBusy(false);}
   }
@@ -167,7 +209,7 @@ export default function Exams(){
       onCreate={beginCreate} createLabel="+ Tạo ca thi" onEdit={row=>open(row,true)} onDelete={remove} editDisabled={row=>busy||locked(row)||!isClosed(row)} deleteDisabled={row=>busy||locked(row)}
       editTitle="Chỉ sửa khi ca đang đóng hoặc chưa mở và chưa có thí sinh tham gia." deleteTitle="Chỉ xóa khi chưa có thí sinh tham gia."
       searchKeys={['title','courseName','courseCode',courseName]} searchPlaceholder="Tìm kiếm ca thi theo tên hoặc môn học..."
-      extraRowActions={row=><><Button variant="secondary" disabled={busy} onClick={()=>open(row)}>Tìm kỳ thi</Button>{isClosed(row)&&<Button disabled={busy} onClick={()=>activate(row)}>Mở ca thi</Button>}{row.status==='ACTIVE'&&<Button variant="danger" disabled={busy} onClick={()=>close(row)}>Đóng ca thi</Button>}{checks[row.id]?.error&&<Button variant="secondary" title={checks[row.id].error} onClick={list.reload}>Thử lại</Button>}</>}
+      extraRowActions={row=><><Button variant="secondary" disabled={busy} onClick={()=>open(row)}>Tìm kỳ thi</Button>{isClosed(row)&&<Button disabled={busy} onClick={()=>activate(row)}>{row.status==='CLOSED'?'Mở lại kỳ thi':'Mở ca thi'}</Button>}{row.status==='ACTIVE'&&<Button variant="danger" disabled={busy} onClick={()=>close(row)}>Đóng ca thi</Button>}{checks[row.id]?.error&&<Button variant="secondary" title={checks[row.id].error} onClick={list.reload}>Thử lại</Button>}</>}
       columns={[{key:'title',label:'Tên kỳ thi',className:'min-w-56',render:row=><span className="font-medium">{row.title}</span>},{key:'courseId',label:'Môn học',render:courseName},{key:'status',label:'Trạng thái',render:row=><StatusBadge status={row.status}/>},{key:'participation',label:'Thí sinh tham gia',render:row=>!checks[row.id]?'Đang kiểm tra...':checks[row.id].error?'Chưa xác minh':checks[row.id].count+' thí sinh'}]} />}
     {view==='list'&&!exam&&<State error={error}/>}
     {toast&&<div role="status"><Toast toast={{message:toast}} onClose={()=>setToast('')}/></div>}

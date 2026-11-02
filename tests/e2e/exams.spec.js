@@ -105,7 +105,8 @@ test('exam list supports search, full-page editing and confirmed closing at mobi
   await expect(activeRow.getByRole('cell',{name:'CLOSED',exact:true})).toBeVisible();expect(closes).toBe(1);
   await expect(page.getByRole('button',{name:'Đóng ca thi',exact:true})).toHaveCount(0);
   await expect(activeRow.getByRole('button',{name:'Sửa',exact:true})).toBeEnabled();
-  await activeRow.getByRole('button',{name:'Mở ca thi',exact:true}).click();
+  page.once('dialog',dialog=>dialog.accept());
+  await activeRow.getByRole('button',{name:'Mở lại kỳ thi',exact:true}).click();
   await expect(activeRow.getByRole('cell',{name:'ACTIVE',exact:true})).toBeVisible();expect(opens).toBe(1);
   await expect(activeRow.getByRole('button',{name:'Sửa',exact:true})).toBeDisabled();
   const table=page.getByRole('region',{name:'Ca thi vấn đáp',exact:true});

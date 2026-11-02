@@ -124,6 +124,8 @@ export async function streamInterview(path, body, { onEvent = () => {}, signal }
 }
 
 export const api = {
+  register: body => request('/auth/register', { method: 'POST', body }),
+  approveRegistration: (id, role) => request(`/users/${id}/approve-registration`, { method: 'POST', body: { role } }),
   login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
   me: (id) => request(`/users/${encodeURIComponent(id)}`),
   users: () => request('/users'),
@@ -158,6 +160,8 @@ export const api = {
   renameMaterial: (id,name) => request(`/materials/${id}`,{method:'PUT',body:{name}}),
   deleteMaterial: id => request(`/materials/${id}`,{method:'DELETE'}),
   downloadMaterial: id => request(`/materials/${id}/download`, { responseType: 'blob' }),
+  previewMaterial: (id, options = {}) => request(`/materials/${id}/preview`, { ...options, responseType: 'blob', timeoutMs: 120000 }),
+  materialText: (id, options = {}) => request(`/materials/${id}/text`, options),
   indexMaterial: id => request(`/materials/${id}/index`, { method: 'POST', timeoutMs: 120000 }),
   materialChunks: id => request(`/materials/${id}/chunks`),
   aiStatus: () => request('/ai/status'),
@@ -183,6 +187,8 @@ export const api = {
   examTranscript: (examId,attemptId) => request(`/exams/${examId}/attempts/${attemptId}/transcript`),
   examRecording: (examId,attemptId,turnId) => request(`/exams/${examId}/attempts/${attemptId}/audio/${turnId}`,{responseType:'blob'}),
   rescheduleCandidate: (id, candidateId, body) => request(`/exams/${id}/candidates/${candidateId}`, { method: 'PUT', body }),
+  grantRetake: (id, candidateId, body) => request(`/exams/${id}/candidates/${candidateId}/retakes`, { method: 'POST', body }),
+  retakeHistory: (id, candidateId) => request(`/exams/${id}/candidates/${candidateId}/retakes`),
   cancelCandidate: (id, candidateId) => request(`/exams/${id}/candidates/${candidateId}`, { method: 'DELETE' }),
   addExamQuestion: (id, questionId) => request(`/exams/${id}/questions`, { method: 'POST', body: { questionId } }),
   assignCandidate: (id, body) => request(`/exams/${id}/candidates`, { method: 'POST', body }),
@@ -197,7 +203,7 @@ export const api = {
   interview: (id, options) => request(`/interviews/${id}`, options),
   streamInterviewAnswer: (id, promptId, text, options) => streamInterview(`/interviews/${id}/turns/stream`, { promptId, text }, options),
   streamInterviewContinue: (id, answerTurnId, options) => streamInterview(`/interviews/${id}/continue/stream`, { answerTurnId }, options),
-  finishInterview: id => request(`/interviews/${id}/finish`, { method: 'POST' }),
+  checkpointInterview: (id, promptId, revision, text) => request(`/interviews/${id}/draft`, { method: 'PUT', body: { promptId, revision, text }, timeoutMs: 5000 }),
   beginInterviewAnswer: (id, promptId) => request(`/interviews/${id}/begin`, { method: 'POST', body: { promptId } }),
   interviewAnswer: (id, promptId, text) => request(`/interviews/${id}/answers`, { method: 'POST', body: { promptId, text }, timeoutMs: 120000 }),
   interviewAudioAnswer: (id, promptId, file) => { const body = new FormData(); body.append('promptId', promptId); body.append('file', file); return request(`/interviews/${id}/audio-answers`, { method: 'POST', body, timeoutMs: 150000 }); },

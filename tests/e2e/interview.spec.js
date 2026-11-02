@@ -19,12 +19,14 @@ function wav() {
 }
 function initial() {
   const prompt = { id: ids.prompt, questionId: 'question1', sequenceNo: 1, kind: 'MAIN_QUESTION', followupNumber: 0, text: 'Vì sao nên phân chia trách nhiệm?', deadline: null };
-  return { attemptId: ids.attempt, status: 'IN_PROGRESS', questionCount: 1, completedQuestions: 0, maxFollowups: 1, answerTimeLimitSeconds: 120, scheduledEnd: new Date(Date.now() + 1200000).toISOString(), serverNow: new Date().toISOString(), prompt, busy: false, needsContinuation: false, answerTurnId: null, error: null, aiConfigured: true,
+  return { attemptId: ids.attempt, status: 'IN_PROGRESS', questionCount: 1, completedQuestions: 0, maxFollowups: 1, maxFollowupsPerQuestion: 2, followupsUsed: 0, answerTimeLimitSeconds: 120, scheduledEnd: new Date(Date.now() + 1200000).toISOString(), serverNow: new Date().toISOString(), prompt, busy: false, needsContinuation: false, answerTurnId: null, error: null, aiConfigured: true,
     turns: [{ ...prompt, speaker: 'AI', speechStatus: 'NONE', hasAudio: false }] };
 }
 async function setup(page, options = {}) {
-  if (options.call) await page.addInitScript(({ denyMic, holdSpeech }) => {
+  if (options.call) await page.addInitScript(({ denyMic, holdSpeech, denyCamera }) => {
     window.__voiceCancelled = 0;
+    window.__spoken=[];window.__mediaRequests=[];
+    navigator.mediaDevices.getUserMedia=async constraints=>{window.__mediaRequests.push(constraints);throw new Error('The voice path must use SpeechRecognition only');};
     class Recognition {
       start() { window.__recognition = this; if (denyMic) setTimeout(() => this.onerror?.({ error: 'not-allowed' }), 10); }
       abort() {}
@@ -33,14 +35,14 @@ async function setup(page, options = {}) {
     window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
     Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
       cancel() { window.__voiceCancelled++; }, getVoices() { return []; },
-      speak(utterance) { window.__utterance = utterance; if (!holdSpeech) setTimeout(() => utterance.onend?.(), 30); },
+      speak(utterance) { window.__utterance = utterance;window.__spoken.push(utterance.text); if (!holdSpeech) setTimeout(() => utterance.onend?.(), 30); },
     } });
     window.__voiceSay = text => {
       window.__recognition.onspeechstart?.();
       window.__recognition.onresult?.({ results: [[{ transcript: text }]] });
     };
-  }, { denyMic: !!options.denyMic, holdSpeech: !!options.holdSpeech });
-  const state = initial(); let speechCalls = 0, failedInitialLoad = false, started = false, streamCalls = 0;
+  }, { denyMic: !!options.denyMic, holdSpeech: !!options.holdSpeech,denyCamera:!!options.denyCamera });
+  const state = initial(); let draftText="",draftCalls=0; let speechCalls = 0, failedInitialLoad = false, started = false, streamCalls = 0,beginCalls=0;
   const respond = route => route.fulfill({ json: { ...state, serverNow: new Date().toISOString() } });
   await page.route('**/api/v1/**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -53,7 +55,13 @@ async function setup(page, options = {}) {
       if (options.initialFailure && !failedInitialLoad) { failedInitialLoad = true; return route.fulfill({ status: 503, json: { message: 'Tạm thời mất kết nối lượt thi.' } }); }
       return respond(route);
     }
+    if(path.endsWith('/draft')){draftCalls++;draftText=route.request().postDataJSON().text;return route.fulfill({status:204});}
+    if(path.endsWith('/continue/stream')){
+      state.needsContinuation=false;state.status='COMPLETED';state.completedQuestions=1;
+      return route.fulfill({contentType:'text/event-stream',body:'event: complete\ndata: '+JSON.stringify({...state,serverNow:new Date().toISOString()})+'\n\n'});
+    }
     if (path.endsWith('/begin')) {
+      beginCalls++;
       expect(route.request().postDataJSON().promptId).toBe(state.prompt.id);
       state.prompt.deadline ||= new Date(Date.now() + (options.shortDeadline ? 1200 : 120000)).toISOString(); return respond(route);
     }
@@ -80,11 +88,8 @@ async function setup(page, options = {}) {
         state.prompt = { id: ids.followup, questionId: 'question1', sequenceNo: 1, kind: 'FOLLOWUP_QUESTION', followupNumber: 1, text: 'Bạn có thể nêu ví dụ cụ thể?', deadline: null };
         state.turns.push({ ...state.prompt, speaker: 'AI', speechStatus: 'NONE', hasAudio: false });
       } else { state.prompt = null; state.status = 'COMPLETED'; state.completedQuestions = 1; }
-      return route.fulfill({ contentType: 'text/event-stream', body: `event: saved\ndata: {"answerTurnId":"answer-${followup}"}\n\nevent: delta\ndata: ${JSON.stringify({ text: state.prompt?.text || '' })}\n\nevent: complete\ndata: ${JSON.stringify({ ...state, serverNow: new Date().toISOString() })}\n\n` });
-    }
-    if (path.endsWith('/finish')) {
-      state.prompt = null; state.status = 'COMPLETED'; state.completedQuestions = 1;
-      return respond(route);
+      const speech=options.feedback&&state.prompt?`event: speech\ndata: ${JSON.stringify({promptId:state.prompt.id,text:'Mình hiểu ý bạn về tách trách nhiệm. '+state.prompt.text})}\n\n`:'';
+      return route.fulfill({ contentType: 'text/event-stream', body: `event: saved\ndata: {"answerTurnId":"answer-${followup}"}\n\nevent: delta\ndata: ${JSON.stringify({ text: state.prompt?.text || '' })}\n\n${speech}event: complete\ndata: ${JSON.stringify({ ...state, serverNow: new Date().toISOString() })}\n\n` });
     }
     if (path.endsWith('/audio-answers')) {
       expect(route.request().headers()['content-type']).toContain('multipart/form-data');
@@ -107,17 +112,22 @@ async function setup(page, options = {}) {
       return respond(route);
     }
     if (path.endsWith('/continue')) { expect(route.request().postDataJSON().answerTurnId).toBe('answer-0'); state.needsContinuation = false; state.error = null; state.status = 'COMPLETED'; state.completedQuestions = 1; return respond(route); }
-    if (path.endsWith('/timeout')) { expect(route.request().postDataJSON().promptId).toBe(ids.prompt); state.prompt = null; state.status = 'COMPLETED'; state.completedQuestions = 1; return respond(route); }
+    if (path.endsWith('/timeout')) {
+      expect(route.request().postDataJSON().promptId).toBe(ids.prompt);
+      if(options.call&&draftText){state.turns.push({id:'deadline-answer',questionId:'question1',sequenceNo:1,speaker:'STUDENT',kind:'MAIN_ANSWER',followupNumber:0,text:draftText,speechStatus:'SUCCEEDED',hasAudio:false});state.answerTurnId='deadline-answer';state.needsContinuation=true;}
+      else{state.status='COMPLETED';state.completedQuestions=1;}
+      state.prompt=null;return respond(route);
+    }
     return route.fulfill({ status: 404, json: { message: 'Unexpected endpoint ' + path } });
   });
   await page.goto('/');
   await page.getByPlaceholder('lecturer@example.com').fill(user.email); await page.getByPlaceholder('Nhập mật khẩu').fill('test123456'); await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
   await page.getByRole('button', { name: 'Vào phòng thi', exact: true }).click();
-  if (!options.call) await page.getByRole('button', { name: 'Chuyển sang chế độ dự phòng', exact: true }).click();
-  await page.getByRole('button', { name: 'Bắt đầu lượt thi', exact: true }).click();
+  if (!options.call){await page.getByText('Tùy chọn kết nối',{exact:true}).click();await page.getByRole('button', { name: 'Chuyển sang chế độ dự phòng', exact: true }).click();}
+  if(!options.prejoin)await page.getByRole('button', { name: options.call?'Tham gia phỏng vấn':'Bắt đầu lượt thi', exact: true }).click();
   if (options.initialFailure) { await expect(page.getByText('Tạm thời mất kết nối lượt thi.', { exact: true })).toBeVisible(); await page.getByRole('button', { name: 'Tải lại lượt thi', exact: true }).click(); }
-  await expect(page.getByText('Vì sao nên phân chia trách nhiệm?', { exact: true }).first()).toBeVisible();
-  return { state, speechCalls: () => speechCalls, streamCalls: () => streamCalls };
+  if(!options.call)await expect(page.getByText('Vì sao nên phân chia trách nhiệm?', { exact: true }).first()).toBeVisible();
+  return { state, speechCalls: () => speechCalls, streamCalls: () => streamCalls,beginCalls:()=>beginCalls,draftCalls:()=>draftCalls };
 }
 
 test('text viva restores the deadline after reload and asks an adaptive followup', async ({ page }) => {
@@ -201,7 +211,7 @@ test('browser speech sends text and automatically resumes after an adaptive foll
   await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
   await expect(page.getByLabel('Câu trả lời bằng văn bản')).toHaveCount(0);
   await page.evaluate(() => window.__voiceSay('Tôi đang trình bày câu trả lời.'));
-  await expect(room.getByRole('heading',{name:'Câu 1 · Hỏi đào sâu 1',exact:true})).toBeVisible();
+  await expect.poll(()=>context.state.prompt?.followupNumber).toBe(1);
   await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
   await page.screenshot({path:'test-results/online-interview.png',fullPage:true});
   await page.evaluate(() => window.__voiceSay('Ví dụ tách giao diện khỏi dữ liệu.'));
@@ -210,25 +220,31 @@ test('browser speech sends text and automatically resumes after an adaptive foll
 });
 
 test.describe('automatic voice turns',()=>{
-  test('barge-in stops speech immediately and finish preserves the accepted transcript',async({page})=>{
-    await setup(page,{call:true,holdSpeech:true});
+  test('barge-in preserves both answers and the exam completes automatically after the followup',async({page})=>{
+    const context=await setup(page,{call:true,holdSpeech:true});
     const room=page.getByRole('region',{name:'Cuộc phỏng vấn trực tiếp'});
     await expect(room.getByText('AI đang nói',{exact:true})).toBeVisible();
+    // The greeting is protected; barge-in is enabled on the actual question.
+    await page.evaluate(()=>window.__utterance.onend());
+    await expect.poll(()=>page.evaluate(()=>window.__spoken.at(-1))).toBe('Vì sao nên phân chia trách nhiệm?');
     const before = await page.evaluate(() => window.__voiceCancelled);
     await page.evaluate(() => window.__voiceSay('Tôi muốn trả lời ngay.'));
     expect(await page.evaluate(() => window.__voiceCancelled)).toBeGreaterThan(before);
     await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
-    await expect(room.getByRole('heading',{name:'Câu 1 · Hỏi đào sâu 1',exact:true})).toBeVisible();
-    await room.getByRole('button',{name:'Kết thúc',exact:true}).click();
+    await expect.poll(()=>context.state.prompt?.followupNumber).toBe(1);
+    await expect(room.getByRole('button',{name:'Kết thúc',exact:true})).toHaveCount(0);
+    await expect(page.getByText('Đã hoàn thành lượt thi.',{exact:false})).toHaveCount(0);
+    await page.evaluate(() => window.__voiceSay('Em xin làm rõ phần trả lời trước.'));
     await expect(page.getByText('Đã hoàn thành lượt thi.',{exact:false})).toBeVisible();
     await expect(page.getByText('Tôi muốn trả lời ngay.',{exact:true})).toBeVisible();
   });
   test('microphone rejection switches to text and keeps the same conversation',async({page})=>{
-    await setup(page,{call:true,denyMic:true});
+    const context=await setup(page,{call:true,denyMic:true});
     await expect(page.getByText('Không dùng được nhận dạng giọng nói.',{exact:false})).toBeVisible();
     await page.getByLabel('Câu trả lời',{exact:true}).fill('Trả lời bằng văn bản sau khi từ chối mic.');
     await page.getByRole('button',{name:'Gửi câu trả lời',exact:true}).click();
-    await expect(page.getByRole('heading',{name:'Câu 1 · Hỏi đào sâu 1',exact:true})).toBeVisible();
+    await expect.poll(()=>context.state.prompt?.followupNumber).toBe(1);
+    await page.getByRole('button',{name:'Mở/đóng hội thoại',exact:true}).click();
     await expect(page.getByText('Trả lời bằng văn bản sau khi từ chối mic.',{exact:true})).toBeVisible();
   });
   test('an interrupted stream retains the accepted answer and retry does not append it twice', async ({ page }) => {
@@ -243,4 +259,100 @@ test.describe('automatic voice turns',()=>{
     expect(context.state.turns.filter(turn => turn.speaker === 'STUDENT')).toHaveLength(1);
     expect(context.streamCalls()).toBe(2);
   });
+});
+
+test('voice prejoin does not start an answer timer and never requests a camera',async({page})=>{
+  const context=await setup(page,{call:true,prejoin:true});const room=page.getByRole('region',{name:'Cuộc phỏng vấn trực tiếp'});
+  await expect(room.getByText('Sẵn sàng vào phòng',{exact:true})).toBeVisible();
+  await expect(page.getByRole('textbox')).toHaveCount(0);await expect(page.locator('video')).toHaveCount(0);
+  await expect(room.getByRole('button',{name:/camera/i})).toHaveCount(0);
+  expect(context.beginCalls()).toBe(0);expect(context.state.prompt.deadline).toBeNull();
+  await room.getByRole('button',{name:'Tham gia phỏng vấn',exact:true}).click();
+  await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();expect(context.beginCalls()).toBe(1);
+  await expect.poll(()=>page.evaluate(()=>window.__spoken[0])).toContain('Chào em');
+  expect(await page.evaluate(()=>window.__mediaRequests)).toEqual([]);
+  await page.screenshot({path:'test-results/interview-voice-desktop.png',fullPage:true});
+});
+
+test('muting the microphone preserves words and resumes the same exchange',async({page})=>{
+  const context=await setup(page,{call:true});const room=page.getByRole('region',{name:'Cuộc phỏng vấn trực tiếp'});
+  await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
+  await page.evaluate(()=>window.__voiceSay('Đầu lập luận'));await room.getByRole('button',{name:'Tắt micro',exact:true}).click();
+  await expect(room.getByText('Mic của bạn đang tắt',{exact:true})).toBeVisible();
+  await page.clock.install();await page.clock.runFor(2000);expect(context.streamCalls()).toBe(0);
+  await room.getByRole('button',{name:'Bật micro',exact:true}).click();await page.evaluate(()=>window.__voiceSay('phần tiếp theo'));
+  await page.clock.runFor(1600);await expect.poll(()=>context.streamCalls()).toBe(1);
+  expect(context.state.turns.find(t=>t.speaker==='STUDENT').text).toBe('Đầu lập luận phần tiếp theo');
+});
+
+test('voice room supports mobile and fullscreen without horizontal overflow',async({page})=>{
+  await page.setViewportSize({width:390,height:844});await setup(page,{call:true});const room=page.getByRole('region',{name:'Cuộc phỏng vấn trực tiếp'});
+  await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await room.getByRole('button',{name:'Mở rộng phòng phỏng vấn',exact:true}).click();await expect(room).toHaveClass(/call-room-fullscreen/);
+  await page.screenshot({path:'test-results/interview-voice-mobile.png',fullPage:true});
+  await page.keyboard.press('Escape');await expect(room).not.toHaveClass(/call-room-fullscreen/);
+});
+
+test('deadline seals microphone checkpoints without waiting for 1.5 seconds of silence',async({page})=>{
+  const context=await setup(page,{call:true,shortDeadline:true});
+  await expect(page.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
+  await page.evaluate(()=>window.__voiceSay('Phần đã nói trước khi hết giờ.'));
+  await expect.poll(()=>context.draftCalls()).toBeGreaterThan(0);
+  await expect(page.getByText('Đã hoàn thành lượt thi.',{exact:false})).toBeVisible();
+  expect(context.streamCalls()).toBe(0);
+  expect(context.state.turns.filter(t=>t.speaker==='STUDENT').map(t=>t.text)).toEqual(['Phần đã nói trước khi hết giờ.']);
+});
+
+test('the next spoken turn includes the AI contextual acknowledgement without needing a send button',async({page})=>{
+  const context=await setup(page,{call:true,feedback:true});const room=page.getByRole('region',{name:'Cuộc phỏng vấn trực tiếp'});
+  await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
+  await page.evaluate(()=>window.__voiceSay('Em tách nhiệm vụ của từng phần.'));
+  await expect.poll(()=>context.streamCalls()).toBe(1);
+  await expect.poll(()=>page.evaluate(()=>window.__spoken.at(-1))).toBe('Mình hiểu ý bạn về tách trách nhiệm. Bạn có thể nêu ví dụ cụ thể?');
+  await expect(page.getByRole('button',{name:'Gửi câu trả lời',exact:true})).toHaveCount(0);
+});
+
+test('switching to the text fallback retains words already captured from the microphone',async({page})=>{
+  const context=await setup(page,{call:true});const room=page.getByRole('region',{name:'Cuộc phỏng vấn trực tiếp'});
+  await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
+  await page.evaluate(()=>window.__voiceSay('Lập luận chưa hoàn thành'));
+  await room.getByRole('button',{name:'Chuyển sang gõ chữ',exact:true}).click();
+  await expect(page.getByLabel('Câu trả lời',{exact:true})).toHaveValue('Lập luận chưa hoàn thành');
+  expect(context.streamCalls()).toBe(0);
+});
+
+
+test('greeting and question are separate, noise and speaker echo do not start an answer or consume a question',async({page})=>{
+  const context=await setup(page,{call:true,holdSpeech:true});
+  const room=page.getByRole('region',{name:'Cuộc phỏng vấn trực tiếp'});
+  await expect(room.getByRole('region',{name:'Câu hỏi đang trao đổi'})).toContainText('Vì sao nên phân chia trách nhiệm?');
+  expect(context.beginCalls()).toBe(0);expect(context.streamCalls()).toBe(0);
+  expect(await page.evaluate(()=>window.__spoken)).toHaveLength(1);
+  await page.evaluate(()=>window.__voiceSay('Em đang chào giám khảo.'));
+  expect(context.streamCalls()).toBe(0);expect(context.beginCalls()).toBe(0);
+  await page.evaluate(()=>window.__utterance.onend());
+  await expect.poll(()=>page.evaluate(()=>window.__spoken.at(-1))).toBe('Vì sao nên phân chia trách nhiệm?');
+  const before=await page.evaluate(()=>window.__voiceCancelled);
+  await page.evaluate(()=>{window.__recognition.onspeechstart?.();window.__voiceSay('Vì sao nên phân chia trách nhiệm');});
+  expect(await page.evaluate(()=>window.__voiceCancelled)).toBe(before);
+  expect(context.beginCalls()).toBe(0);expect(context.streamCalls()).toBe(0);
+  await expect(room.getByText('AI đang nói',{exact:true})).toBeVisible();
+  await page.evaluate(()=>window.__utterance.onend());
+  await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();expect(context.beginCalls()).toBe(1);
+  await page.evaluate(()=>window.__voiceSay('Mỗi thành phần chịu trách nhiệm riêng.'));
+  await expect.poll(()=>context.streamCalls()).toBe(1);
+  expect(context.state.turns.find(t=>t.speaker==='STUDENT').text).toBe('Mỗi thành phần chịu trách nhiệm riêng.');
+});
+
+test('the question remains visible and replaying it does not reset the server deadline or use another followup',async({page})=>{
+  const context=await setup(page,{call:true});const room=page.getByRole('region',{name:'Cuộc phỏng vấn trực tiếp'});
+  await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
+  const deadline=context.state.prompt.deadline;
+  await room.getByRole('button',{name:'Bật/tắt phụ đề',exact:true}).click();
+  await expect(room.getByRole('region',{name:'Câu hỏi đang trao đổi'})).toContainText('Vì sao nên phân chia trách nhiệm?');
+  await room.getByRole('button',{name:'Nghe lại câu hỏi',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__spoken.at(-1))).toBe('Vì sao nên phân chia trách nhiệm?');
+  await expect(room.getByText('Đang nghe bạn',{exact:true})).toBeVisible();
+  expect(context.state.prompt.deadline).toBe(deadline);expect(context.beginCalls()).toBe(1);expect(context.streamCalls()).toBe(0);
+  await page.screenshot({path:'test-results/question-delivery.png',fullPage:true});
 });

@@ -4,6 +4,35 @@ import { api, request, setToken, decodeJwt, ApiError } from '../src/services/api
 
 const originalFetch = globalThis.fetch;
 const originalWindow = globalThis.window;
+
+test('registration submits personal details without choosing a role and returns the pending status', async () => {
+  const payload={fullName:'Nguyễn An',email:'new@example.com',password:'StudyPass123!',confirmPassword:'StudyPass123!'};
+  globalThis.fetch=async(url,options)=>{
+    assert.equal(url,'/api/v1/auth/register');assert.equal(options.method,'POST');
+    assert.deepEqual(JSON.parse(options.body),payload);
+    return Response.json({code:201,data:{email:payload.email,registrationStatus:'PENDING',message:'Chờ Admin phân quyền'}});
+  };
+  assert.equal((await api.register(payload)).registrationStatus,'PENDING');
+});
+
+test('admin approval sends an explicitly selected role using the authenticated endpoint', async () => {
+  setToken('admin-jwt');
+  globalThis.fetch=async(url,options)=>{
+    assert.equal(url,'/api/v1/users/new-id/approve-registration');assert.equal(options.headers.Authorization,'Bearer admin-jwt');
+    assert.deepEqual(JSON.parse(options.body),{role:'LECTURER'});
+    return Response.json({code:200,data:{id:'new-id',role:'LECTURER',active:true,registrationStatus:'APPROVED'}});
+  };
+  assert.equal((await api.approveRegistration('new-id','LECTURER')).active,true);
+});
+
+test('document preview downloads an authenticated PDF without wrapping the blob', async () => {
+  setToken('student-jwt');
+  globalThis.fetch=async(url,options)=>{
+    assert.equal(url,'/api/v1/materials/slides-id/preview');assert.equal(options.headers.Authorization,'Bearer student-jwt');
+    return new Response('%PDF-1.4',{headers:{'Content-Type':'application/pdf'}});
+  };
+  const preview=await api.previewMaterial('slides-id');assert.equal(preview.type,'application/pdf');assert.equal(await preview.text(),'%PDF-1.4');
+});
 afterEach(() => {
   globalThis.fetch = originalFetch;
   if (originalWindow === undefined) delete globalThis.window;

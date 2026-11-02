@@ -5,6 +5,7 @@ import {Button,FormPage,ListPage,SuccessToast} from '../ui';
 import StatusBadge from '../common/StatusBadge';
 import { difficultyLabels } from '../common/questionLevels';
 import useCourseCollection from '../../hooks/useCourseCollection';
+import MaterialViewer from '../common/MaterialViewer';
 
 const labels = { UPLOADED: 'Đã tải lên', PROCESSING: 'Đang xử lý', READY: 'Sẵn sàng', FAILED: 'Xử lý thất bại' };
 export function CourseMaterials({ courseId='', courseState, onQuestionsGenerated, toolbar, initialView='list' }) {
@@ -17,6 +18,7 @@ export function CourseMaterials({ courseId='', courseState, onQuestionsGenerated
   const jobs = useRemote(() => view==='ai'&&actionCourseId ? api.generationJobs(actionCourseId) : Promise.resolve([]), [view,actionCourseId]);
   const ai = useRemote(() => view==='ai' ? api.aiStatus() : Promise.resolve([]), [view]);
   const [previewId, setPreviewId] = useState('');
+  const [viewingMaterial,setViewingMaterial]=useState(null);
   const preview = useRemote(() => previewId ? api.materialChunks(previewId) : Promise.resolve([]), [previewId]);
   const m = useMutation(() => { data.reload(); jobs.reload(); });
   const fileInput = useRef(null);
@@ -30,7 +32,7 @@ export function CourseMaterials({ courseId='', courseState, onQuestionsGenerated
   async function upload(e) {
     e.preventDefault();
     if (!actionCourseId) { m.setError('Chọn môn học cho tài liệu mới.'); return; }
-    if (!file || !/\.(pdf|docx)$/i.test(file.name) || file.size === 0 || file.size > 20 * 1024 * 1024) { m.setError('Chọn một tệp PDF/DOCX không rỗng, tối đa 20 MB.'); return; }
+    if (!file || !/\.(pdf|docx|ppt|pptx)$/i.test(file.name) || file.size === 0 || file.size > 20 * 1024 * 1024) { m.setError('Chọn một tệp PDF/DOCX/PPT/PPTX không rỗng, tối đa 20 MB.'); return; }
     const result = await m.run(() => api.uploadMaterial(actionCourseId, file), 'Đã tải tài liệu lên. Chọn Xử lý văn bản để dùng cho AI.');
     if (result) { setFile(null); fileInput.current.value = '';setView('list'); }
   }
@@ -77,7 +79,7 @@ export function CourseMaterials({ courseId='', courseState, onQuestionsGenerated
   const toast=<SuccessToast message={m.success} onClose={()=>m.setSuccess('')}/>;
   if(view==='create')return <><FormPage title="Tải tài liệu lên" onBack={back} onSubmit={upload} saving={m.busy} disabled={!actionCourseId||!file||!!data.error} error={m.error||data.error}>
     {actionPicker}
-    <Field label="Tệp PDF hoặc DOCX (tối đa 20 MB)" required><input ref={fileInput} type="file" accept=".pdf,.docx" className={input} required onChange={e=>setFile(e.target.files?.[0]||null)}/></Field>
+    <Field label="Tệp PDF, DOCX, PPT hoặc PPTX (tối đa 20 MB)" required><input ref={fileInput} type="file" accept=".pdf,.docx,.ppt,.pptx" className={input} required onChange={e=>setFile(e.target.files?.[0]||null)}/></Field>
     <p className="mt-3 text-sm text-mutedtext">PDF cần có văn bản có thể chọn và sao chép. Tệp PDF ảnh cần được OCR trước.</p>
   </FormPage>{toast}</>;
   if(view==='edit')return <><FormPage title="Đổi tên tài liệu" onBack={back} onSubmit={async e=>{e.preventDefault();const result=await m.run(()=>api.renameMaterial(editingMaterial.id,materialName),'Đã đổi tên tài liệu.');if(result){setEditingMaterial(null);setView('list');}}} saving={m.busy} error={m.error}>
@@ -126,11 +128,13 @@ export function CourseMaterials({ courseId='', courseState, onQuestionsGenerated
     getRowLabel={material=>material.originalFilename}
     columns={[{key:'originalFilename',label:'Tên tài liệu',className:'min-w-56'},{key:'courseLabel',label:'Môn học'},{key:'extractionStatus',label:'Trạng thái',render:row=><StatusBadge status={labels[row.extractionStatus]||row.extractionStatus}/>},{key:'uploadedAt',label:'Ngày tải lên',render:row=>new Date(row.uploadedAt).toLocaleString('vi-VN')}]}
     extraRowActions={material=><>
+      <Button variant="secondary" disabled={m.busy} onClick={()=>setViewingMaterial(material)}>Xem tài liệu</Button>
       <Button variant="secondary" disabled={m.busy} onClick={()=>download(material)}>Tải xuống</Button>
       {material.extractionStatus!=='READY'&&<Button variant="secondary" disabled={m.busy||material.extractionStatus==='PROCESSING'} onClick={()=>index(material)}>{material.extractionStatus==='FAILED'?'Thử xử lý lại':'Xử lý văn bản'}</Button>}
       {material.extractionStatus==='READY'&&<Button variant="secondary" disabled={m.busy} onClick={()=>setPreviewId(material.id)}>Xem văn bản</Button>}
     </>}/>
     <State error={m.error}/>
+    {viewingMaterial&&<MaterialViewer material={viewingMaterial} onClose={()=>setViewingMaterial(null)}/>}
     {!data.loading&&!data.error&&!scope.items.length&&<Notice>Chưa có môn học để quản lý. Giảng viên cần được quản trị viên phân công môn học.</Notice>}
     {previewId&&<Panel title="Văn bản đã trích xuất"><Button variant="secondary" onClick={()=>setPreviewId('')}>Đóng văn bản</Button><State error={preview.error}/>{preview.error&&<Button variant="secondary" onClick={preview.reload}>Thử lại</Button>}{preview.loading?<p>Đang tải văn bản...</p>:<div className="max-h-80 space-y-3 overflow-y-auto">{preview.items.map(chunk=><p key={chunk.id} className="whitespace-pre-wrap text-sm">{chunk.content}</p>)}</div>}</Panel>}
     {toast}

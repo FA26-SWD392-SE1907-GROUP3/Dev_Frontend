@@ -19,6 +19,7 @@ for(const status of [401,403]){
     await page.getByPlaceholder('Nhập mật khẩu').fill('test123456');
     await page.getByRole('button',{name:'Đăng nhập',exact:true}).click();
     await page.getByRole('button',{name:'Vào phòng thi',exact:true}).click();
+    await page.getByText('Tùy chọn kết nối',{exact:true}).click();
     await page.getByRole('button',{name:'Chuyển sang chế độ dự phòng',exact:true}).click();
     await page.getByRole('button',{name:'Bắt đầu lượt thi',exact:true}).click();
     if(status===401){
