@@ -41,7 +41,7 @@ async function teacherRoom(page,{reject=false}={}){
 }
 
 test('lecturer grants one retake with schedule and reason, sees the audit, then reopens the closed exam',async({page})=>{
-  const context=await teacherRoom(page);await page.getByRole('button',{name:'Tìm kỳ thi',exact:true}).click();
+  const context=await teacherRoom(page);await page.getByRole('button',{name:'Chi tiết',exact:true}).click();
   await page.getByRole('button',{name:'Cho phép thi lại',exact:true}).click();
   await expect(page.getByRole('button',{name:'Xác nhận cho thi lại',exact:true})).toBeDisabled();
   await page.getByLabel('Lý do cho thi lại').fill('Micro bị ngắt giữa buổi vấn đáp.');
@@ -55,7 +55,7 @@ test('lecturer grants one retake with schedule and reason, sees the audit, then 
 });
 
 test('lecturer can cancel an unused retake while the exam is closed, retaining the audit',async({page})=>{
-  const context=await teacherRoom(page);await page.getByRole('button',{name:'Tìm kỳ thi',exact:true}).click();
+  const context=await teacherRoom(page);await page.getByRole('button',{name:'Chi tiết',exact:true}).click();
   await page.getByRole('button',{name:'Cho phép thi lại',exact:true}).click();await page.getByLabel('Lý do cho thi lại').fill('Thi lại do mất mạng.');
   await page.getByRole('button',{name:'Xác nhận cho thi lại',exact:true}).click();await page.getByRole('button',{name:'Hủy lịch thi',exact:true}).click();
   await expect(page.getByRole('button',{name:'Cho phép thi lại',exact:true})).toBeVisible();expect(context.grants[0].revokedAt).not.toBeNull();
@@ -65,7 +65,7 @@ test('lecturer can cancel an unused retake while the exam is closed, retaining t
 test('stale grant conflict stays visible and reopening can be cancelled from the list',async({page})=>{
   const context=await teacherRoom(page,{reject:true});page.once('dialog',dialog=>dialog.dismiss());
   await page.getByRole('button',{name:'Mở lại kỳ thi',exact:true}).click();expect(context.activations()).toBe(0);
-  await page.getByRole('button',{name:'Tìm kỳ thi',exact:true}).click();await page.getByRole('button',{name:'Cho phép thi lại',exact:true}).click();
+  await page.getByRole('button',{name:'Chi tiết',exact:true}).click();await page.getByRole('button',{name:'Cho phép thi lại',exact:true}).click();
   await page.getByLabel('Lý do cho thi lại').fill('Một yêu cầu từ màn hình cũ.');await page.getByRole('button',{name:'Xác nhận cho thi lại',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('Đã có một lịch thi lại chưa sử dụng.');expect(context.candidate.status).toBe('COMPLETED');
 });

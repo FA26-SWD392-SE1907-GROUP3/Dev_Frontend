@@ -1,12 +1,16 @@
+import { createInterviewDiagnostics } from './interviewDiagnostics.js';
 // Browser-only audio. The application sends text to Spring Boot, never recordings.
 export function createWebSpeech({ onTranscript = () => {}, onAnswer = () => {}, onPhase = () => {},
   onListening = () => {}, onFallback = () => {}, onInterruption = () => {},
-  env = globalThis, silenceMs = 1500, reminderMs = 8000 }) {
+  env = globalThis, silenceMs = 1500, reminderMs = 8000, diagnosticsContext=()=>({}) }) {
   const Recognition = env.SpeechRecognition || env.webkitSpeechRecognition;
   const synthesis = env.speechSynthesis;
   let active = false, paused = true, speaking = false, muted = false, transcript = '', recognition = null;
   let silenceTimer, reminderTimer, restartTimer, echoTimer, generation = 0, reminded = false;
   let protectedSpeech = false, aiText = '', echoWindow = false;
+  const diagnostic=createInterviewDiagnostics({env,getContext:()=>({...diagnosticsContext(),mode:'browser_fallback'})});
+  let segmentId=0;
+  let speechEndedAt=null;
   const words = value => value.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi,'d')
     .toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean);
   function isEcho(text) {
@@ -34,6 +38,7 @@ export function createWebSpeech({ onTranscript = () => {}, onAnswer = () => {}, 
     if (transcript.trim()) { env.clearTimeout(reminderTimer); reminderTimer = null; silenceTimer = env.setTimeout(() => {
       const text = transcript.trim();
       if (!text || paused || speaking || muted || !active) return;
+      diagnostic.event('answer.auto_submit',{reason:'browser_silence',textChars:text.length,silenceMs});
       pause(); transcript = ''; onAnswer(text);
     }, silenceMs); }
     else if (!reminded && !reminderTimer) reminderTimer = env.setTimeout(() => {
@@ -56,11 +61,15 @@ export function createWebSpeech({ onTranscript = () => {}, onAnswer = () => {}, 
       env.clearTimeout(reminderTimer); env.clearTimeout(silenceTimer);
       reminderTimer = null;
     };
+    current.onspeechend=()=>{speechEndedAt=diagnostic.now();diagnostic.event('speech.end_candidate',{source:'browser'});};
     current.onresult = event => {
       if (!active || paused || muted || recognition !== current) return;
       const parts = [];
       for (let i = 0; i < event.results.length; i++) parts.push(event.results[i][0].transcript);
       const recognized = parts.join(' ').trim();
+      const resultFinal=Array.from(event.results).every(result=>!!result.isFinal);
+      diagnostic.event(resultFinal?'stt.final':'stt.delta',{source:'browser',resultFinal,transcriptChars:recognized.length,
+        fromSpeechEndMs:speechEndedAt===null?-1:diagnostic.now()-speechEndedAt});
       if (protectedSpeech) return;
       if ((speaking || echoWindow) && isEcho(recognized)) {
         // Discard cumulative results containing the AI's voice before the next student utterance.
@@ -69,16 +78,19 @@ export function createWebSpeech({ onTranscript = () => {}, onAnswer = () => {}, 
       }
       transcript = `${prefix} ${recognized}`.trim().slice(0, 12000);
       if (speaking && transcript) {
+        diagnostic.event('audio.barge_in',{source:'browser',transcriptChars:transcript.length});
         generation++; speaking = false; echoWindow=false; synthesis.cancel(); onInterruption(); listen();
       }
       onTranscript(transcript); arm();
     };
     current.onerror = event => {
+      diagnostic.event('stt.error',{source:'browser',reason:event.error});
       if (!active || recognition !== current) return;
       if (['not-allowed', 'service-not-allowed', 'audio-capture', 'network', 'language-not-supported'].includes(event.error))
         fallback('Không dùng được nhận dạng giọng nói. Bạn có thể tiếp tục bằng văn bản.');
     };
     current.onend = () => {
+      diagnostic.event('stt.recognition_ended',{source:'browser',transcriptChars:transcript.length,muted});
       if (recognition !== current) return;
       recognition = null;
       if (active && !paused && !muted) { arm(); restartTimer = env.setTimeout(ensureRecognition, 250); }
@@ -88,6 +100,7 @@ export function createWebSpeech({ onTranscript = () => {}, onAnswer = () => {}, 
   function say(text, closing = false, next = null) {
     if (!active) return;
     const version = ++generation;
+    const speechSegment=++segmentId,started=diagnostic.now();
     synthesis.cancel(); clear();
     paused = false; speaking = true; protectedSpeech=closing||!!next;echoWindow=true;
     env.clearTimeout(echoTimer);
@@ -97,7 +110,12 @@ export function createWebSpeech({ onTranscript = () => {}, onAnswer = () => {}, 
     utterance.lang = 'vi-VN'; utterance.rate = 1;
     const voice = synthesis.getVoices().find(v => v.lang?.toLowerCase().startsWith('vi'));
     if (voice) utterance.voice = voice;
+    diagnostic.event('tts.browser.request',{source:'browser',model:'browser_speechSynthesis',voiceId:voice?.voiceURI||voice?.name||'browser_default',
+      speed:utterance.rate,pitch:utterance.pitch??1,sampleRate:'browser_managed',format:'browser_managed',textChars:text.length,segmentId:speechSegment});
+    utterance.onstart=()=>diagnostic.event('audio.play_started',{source:'browser',model:'browser_speechSynthesis',voiceId:voice?.voiceURI||voice?.name||'browser_default',
+      speed:utterance.rate,pitch:utterance.pitch??1,sampleRate:'browser_managed',format:'browser_managed',elapsedMs:diagnostic.now()-started,segmentId:speechSegment});
     utterance.onend = () => {
+      diagnostic.event('audio.ended',{source:'browser',elapsedMs:diagnostic.now()-started,segmentId:speechSegment});
       if (!active || version !== generation) return;
       protectedSpeech=false;
       if(next){next();return;}
@@ -106,12 +124,14 @@ export function createWebSpeech({ onTranscript = () => {}, onAnswer = () => {}, 
       listen();
     };
     utterance.onerror = event => {
+      diagnostic.event('audio.error',{source:'browser',reason:event.error,segmentId:speechSegment});
       if (active && version === generation && !['canceled', 'interrupted'].includes(event.error))
         fallback('Không phát được giọng đọc. Bạn có thể đọc câu hỏi và tiếp tục bằng văn bản.');
     };
     try { synthesis.speak(utterance); } catch { fallback('Không phát được giọng đọc. Em có thể đọc câu hỏi và tiếp tục bằng văn bản.'); }
   }
   function pause() {
+    if(speaking)diagnostic.event('audio.cancel',{source:'browser',reason:'pause',segmentId});
     paused = true; speaking = false; protectedSpeech=false;echoWindow=false;generation++; clear(); env.clearTimeout(restartTimer);env.clearTimeout(echoTimer);
     const current = recognition; recognition = null; current?.abort(); synthesis?.cancel();
   }

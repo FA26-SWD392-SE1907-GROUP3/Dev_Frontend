@@ -1,5 +1,6 @@
 import { api, interviewSocketUrl } from './api';
 import { createTurnDetector } from './turnDetector';
+import { createInterviewDiagnostics } from './interviewDiagnostics.js';
 
 // A complete local recording is retained even when live captions disconnect.
 export function createVoiceCapture(stream, attemptId, promptId, { onTranscript, onLiveStatus, onLiveError, onTurnEnd, onLevel, keepStream = false }) {
@@ -8,7 +9,9 @@ export function createVoiceCapture(stream, attemptId, promptId, { onTranscript, 
   const chunks = [];
   let socket, context, source, node, gain, closed = false, stopping = null, ready = false;
   const items = new Map();
-  const detect = onTurnEnd ? createTurnDetector({ onEnd: onTurnEnd, onLevel }) : null;
+  const diagnostic=createInterviewDiagnostics({getContext:()=>({attemptId,promptId,mode:'legacy_capture'})});
+  const started=diagnostic.now();
+  const detect = onTurnEnd ? createTurnDetector({ onEnd: onTurnEnd, onLevel,onDiagnostic:fields=>diagnostic.event('vad.commit',fields) }) : null;
   const complete = new Promise((resolve, reject) => {
     recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
     recorder.onerror = () => reject(new Error('Không ghi được âm thanh. Hãy kiểm tra micro.'));
@@ -21,6 +24,7 @@ export function createVoiceCapture(stream, attemptId, promptId, { onTranscript, 
   // A recording error can arrive before the user presses Stop.
   complete.catch(() => {});
   recorder.start(250);
+  diagnostic.event('recording.start',{source:'live',format:recorder.mimeType||preferred||'browser_default',silenceMs:4000,threshold:.018,sampleRate:24000});
   onLiveStatus('Đang kết nối nhận dạng trực tiếp...');
   (async () => {
     const connectLive = async () => {
@@ -34,6 +38,7 @@ export function createVoiceCapture(stream, attemptId, promptId, { onTranscript, 
           const data = JSON.parse(event.data);
           if (data.type === 'ready') { ready = true; onLiveStatus('Đang nhận dạng giọng nói trực tiếp'); }
           else if (data.type === 'delta' || data.type === 'final') {
+            diagnostic.event(data.type==='final'?'stt.final':'stt.delta',{source:'live',transcriptChars:data.text?.length??0,resultFinal:data.type==='final'});
             const previous = items.get(data.itemId) || '';
             items.set(data.itemId, data.type === 'final' ? data.text : previous + data.text);
             onTranscript([...items.values()].join(' '));
@@ -63,6 +68,7 @@ export function createVoiceCapture(stream, attemptId, promptId, { onTranscript, 
   async function stop() {
     if (stopping) return stopping;
     closed = true;
+    diagnostic.event('recording.stop',{elapsedMs:diagnostic.now()-started,audioBytes:chunks.reduce((sum,chunk)=>sum+chunk.size,0)});
     if (recorder.state !== 'inactive') recorder.stop();
     if (!keepStream) stream.getTracks().forEach(track => track.stop());
     source?.disconnect(); node?.disconnect(); gain?.disconnect();

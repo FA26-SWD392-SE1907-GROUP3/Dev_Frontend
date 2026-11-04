@@ -9,5 +9,9 @@
 @keyframes call-wave{from{transform:scaleY(.4)}to{transform:scaleY(1.15)}}@keyframes call-pulse{50%{box-shadow:0 0 0 12px #91b9f508}}@keyframes call-spin{to{transform:rotate(360deg)}}
 @media(max-width:650px){.call-room-header{padding:16px}.call-room-identity strong{font-size:12px}.call-room-identity span{font-size:10px}.call-room-meta{gap:3px}.call-room-stage{min-height:400px}.call-controls{flex-wrap:wrap;justify-content:center;gap:12px;padding:14px}.call-control-group{width:100%;justify-content:center}.call-connection-status{padding:0 16px 16px;gap:8px}.call-room-fullscreen{inset:8px}.call-ai-presence p{font-size:12px}.call-transcript-messages article{max-width:100%}}
 @media(prefers-reduced-motion:reduce){.call-voice-wave i,.call-avatar-halo,.call-spinner{animation:none!important}}
+.call-room-stage{padding-bottom:24px;gap:18px;align-content:center}
+.call-caption-stack{display:grid;gap:8px;width:min(720px,100%);min-width:0}
+.call-caption-stack .call-live-captions{position:static;transform:none;width:100%;overflow-wrap:anywhere}
+.call-caption-stack small{display:block;margin-top:5px;color:#aecbfa;font-size:11px}
 
 .call-current-question{margin:0 24px 18px;padding:16px 18px;border:1px solid #ffffff18;border-radius:12px;background:#ffffff05;display:flex;align-items:center;justify-content:space-between;gap:16px}.call-current-question h3{font-size:11px;color:#9db7dc;margin-bottom:7px}.call-current-question p{font-size:14px;line-height:1.7;white-space:pre-wrap;color:#edf3ff}.call-current-question>div{min-width:0}.call-current-question .call-control{flex-shrink:0}@media(max-width:650px){.call-current-question{margin:0 16px 16px;padding:12px;gap:10px}.call-current-question p{font-size:13px}}

@@ -151,7 +151,7 @@ test('lecturer schedules only after administrator enrolls the student',async({pa
   await page.getByPlaceholder('Nhập mật khẩu').fill('test123456');
   await page.getByRole('button',{name:'Đăng nhập',exact:true}).click();
   await page.getByRole('button',{name:'Ca thi vấn đáp',exact:true}).click();
-  await page.getByRole('button',{name:'Tìm kỳ thi',exact:true}).click();
+  await page.getByRole('button',{name:'Chi tiết',exact:true}).click();
   await page.getByLabel('Email sinh viên').fill('student@example.com');
   await page.getByLabel('Bắt đầu',{exact:false}).fill('2026-12-01T08:00');
   await page.getByLabel('Kết thúc',{exact:false}).fill('2026-12-01T08:30');

@@ -1,5 +1,5 @@
 // Conservative end-of-turn detection. A thinking pause before speaking never submits an empty answer.
-export function createTurnDetector({ silenceMs = 4000, threshold = 0.018, onEnd, onLevel = () => {} }) {
+export function createTurnDetector({ silenceMs = 4000, threshold = 0.018, onEnd, onLevel = () => {}, onDiagnostic = () => {} }) {
   let voicedMs = 0, quietMs = 0, ended = false;
   return samples => {
     if (ended || !samples.length) return;
@@ -8,6 +8,9 @@ export function createTurnDetector({ silenceMs = 4000, threshold = 0.018, onEnd,
     const duration = samples.length / 24; // PCM at 24 kHz, in milliseconds.
     if (rms >= threshold) { voicedMs += duration; quietMs = 0; }
     else if (voicedMs >= 350) quietMs += duration;
-    if (voicedMs >= 350 && quietMs >= silenceMs) { ended = true; onEnd(); }
+    if (voicedMs >= 350 && quietMs >= silenceMs) {
+      try{onDiagnostic({reason:'silence',silenceMs,threshold,voicedMs,quietMs,rms});}catch{}
+      ended = true; onEnd();
+    }
   };
 }

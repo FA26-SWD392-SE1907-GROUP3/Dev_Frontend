@@ -1,3 +1,5 @@
+import { createInterviewDiagnostics } from './interviewDiagnostics.js';
+const networkDiagnostic=createInterviewDiagnostics();
 // Spring Boot controllers in the uploaded Dev_Backend.zip use /api/v1.
 // On Vite dev server /api/v1 is proxied to http://localhost:8080.
 const baseUrl = (import.meta.env?.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
@@ -22,6 +24,9 @@ function serverMessage(problem, status) {
   return message || `Yêu cầu thất bại (HTTP ${status}).`;
 }
 export async function request(path, { body, responseType, rawBody = false, timeoutMs = 30000, ...options } = {}) {
+  const audioMatch=path.match(/^\/interviews\/([^/]+)\/(voice|speech|audio|transcribe)(?:\/([^/]+))?$/);
+  const diagnosticStarted=networkDiagnostic.now();
+  const diagnosticContext=audioMatch?{attemptId:audioMatch[1],promptId:body?.promptId||audioMatch[3],speechKind:body?.kind}:{};
   const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
   const timeout = AbortSignal.timeout(timeoutMs);
   let signal = timeout;
@@ -34,10 +39,15 @@ export async function request(path, { body, responseType, rawBody = false, timeo
         ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}), ...options.headers },
       ...(body !== undefined ? { body: multipart || rawBody ? body : JSON.stringify(body) } : {}),
     });
+    if(audioMatch)networkDiagnostic.event('http.audio.headers',{...diagnosticContext,httpStatus:response.status,elapsedMs:networkDiagnostic.now()-diagnosticStarted,format:response.headers.get('content-type')});
     if (response.status === 401 && requestToken && bearerToken === requestToken && !path.startsWith('/auth/login') && typeof window !== 'undefined') {
       window.dispatchEvent(new Event('aives:unauthorized'));
     }
-    if (responseType === 'blob' && response.ok) return await response.blob();
+    if (responseType === 'blob' && response.ok) {
+      const blob=await response.blob();
+      if(audioMatch)networkDiagnostic.event('http.audio.body',{...diagnosticContext,responseBytes:blob.size,elapsedMs:networkDiagnostic.now()-diagnosticStarted});
+      return blob;
+    }
 
     const raw = await response.text();
     let result = null;
@@ -70,6 +80,9 @@ export function decodeJwt(token) {
 }
 
 export async function streamInterview(path, body, { onEvent = () => {}, signal } = {}) {
+  const diagnosticStarted=networkDiagnostic.now();
+  const diagnosticContext={attemptId:path.split('/')[2],promptId:body.promptId,answerId:body.answerTurnId};
+  let diagnosticFirstDelta=true;
   try {
   const requestToken = bearerToken;
   const timeout = AbortSignal.timeout(90000);
@@ -97,6 +110,8 @@ export async function streamInterview(path, body, { onEvent = () => {}, signal }
     }
     if (!data.length) return;
     const payload = JSON.parse(data.join('\n'));
+    if(event==='delta'&&diagnosticFirstDelta){diagnosticFirstDelta=false;networkDiagnostic.event('llm.client.first_delta',{...diagnosticContext,elapsedMs:networkDiagnostic.now()-diagnosticStarted,messageChars:payload.text?.length??0});}
+    if(event==='complete'||event==='error')networkDiagnostic.event('conversation.sse_terminal',{...diagnosticContext,eventType:event,elapsedMs:networkDiagnostic.now()-diagnosticStarted});
     if (event === 'error') throw new ApiError(payload.message || 'AI bị gián đoạn. Câu trả lời đã lưu.');
     onEvent(event, payload);
     if (event === 'complete') result = payload;
@@ -212,5 +227,11 @@ export const api = {
   interviewSpeech: (id, turnId) => request(`/interviews/${id}/speech/${turnId}`, { responseType: 'blob', timeoutMs: 180000 }),
   interviewAudio: (id, turnId) => request(`/interviews/${id}/audio/${turnId}`, { responseType: 'blob' }),
   interviewLiveTicket: (id, promptId) => request(`/interviews/${id}/live-ticket`, { method: 'POST', body: { promptId } }),
+  conversationVoiceTicket: (id, promptId) => request(`/interviews/${id}/voice-ticket`, { method: 'POST', body: { promptId } }),
+  conversationVoice: (id, promptId, kind, options={}) => request(`/interviews/${id}/voice`, { ...options, method: 'POST', body: { promptId, kind }, responseType: 'blob', timeoutMs: 60000 }),
+  transcribeConversation: (id, promptId, file, options={}) => {
+    const body=new FormData();body.append('promptId',promptId);body.append('file',file,'answer.wav');
+    return request(`/interviews/${id}/transcribe`,{...options,method:'POST',body,timeoutMs:45000});
+  },
   submitAnswer: (assignedQuestionId, text) => request(`/attempts/questions/${assignedQuestionId}/answer`, { method: 'POST', body: { text } }),
 };

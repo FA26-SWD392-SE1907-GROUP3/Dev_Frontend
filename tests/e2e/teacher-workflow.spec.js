@@ -70,7 +70,7 @@ test('teacher creates exam, manages its question pool and changes student schedu
   await page.getByRole('button',{name:'+ Tạo ca thi',exact:true}).first().click();
   await page.getByRole('combobox',{name:'Môn học',exact:true}).selectOption('c1');await page.getByLabel('Rubric chấm toàn bài').selectOption('r1');await page.getByLabel('Tên kỳ thi').fill('Kỳ thi giáo viên tổ chức');await page.getByLabel('Số câu chính (1–100)').fill('1');await page.getByRole('button',{name:'Lưu',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Ca thi vấn đáp',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Tìm kỳ thi',exact:true}).click();
+  await page.getByRole('button',{name:'Chi tiết',exact:true}).click();
   await expect(page.getByRole('button',{name:'Mở ca thi',exact:true})).toBeDisabled();
   await expect(page.getByRole('option',{name:'Không được dùng',exact:true})).toHaveCount(0);
   await page.getByLabel('Câu hỏi đã duyệt',{exact:true}).selectOption('q1');await page.getByRole('button',{name:'Thêm câu hỏi',exact:true}).click();
@@ -102,7 +102,7 @@ test('teacher cancels a running student while keeping the schedule in the roster
     return false;
   });
   await page.getByRole('button',{name:'Ca thi vấn đáp',exact:true}).click();
-  await page.getByRole('button',{name:'Tìm kỳ thi',exact:true}).click();
+  await page.getByRole('button',{name:'Chi tiết',exact:true}).click();
   await expect(page.getByRole('cell',{name:'IN_PROGRESS',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Sửa lịch',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'Hủy lịch thi',exact:true}).click();

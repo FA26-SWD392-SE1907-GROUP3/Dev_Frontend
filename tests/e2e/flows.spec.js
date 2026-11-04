@@ -73,6 +73,6 @@ test('exam config sends adaptive mode and a whole-student deep-question budget',
     if(path==='/api/v1/courses/c1/questions'||path==='/api/v1/courses/c1/students'||path==='/api/v1/exams/e1/questions'||path==='/api/v1/exams/e1/candidates'){await route.fulfill({json:[]});return true;}
   },'Ca thi vấn đáp');
   await page.getByLabel('Rubric chấm toàn bài').selectOption('r1');await page.getByLabel('Tên kỳ thi').fill('Thi 3 câu chính và tối đa 4 câu đào sâu');await page.getByLabel('Số câu đào sâu tối đa mỗi sinh viên').fill('4');await page.getByLabel('Cách chọn bộ câu hỏi').selectOption('ADAPTIVE');await page.getByRole('button',{name:'Lưu',exact:true}).click();await expect.poll(()=>submitted).toBe(true);
-  await page.getByRole('button',{name:'Tìm kỳ thi',exact:true}).click();await expect(page.getByText(/3 câu chính \+ tối đa 4 câu đào sâu cho toàn bộ lượt thi/)).toBeVisible();
+  await page.getByRole('button',{name:'Chi tiết',exact:true}).click();await expect(page.getByText(/3 câu chính \+ tối đa 4 câu đào sâu cho toàn bộ lượt thi/)).toBeVisible();
   await page.screenshot({path:'test-results/student-question-budget.png',fullPage:true});
 });

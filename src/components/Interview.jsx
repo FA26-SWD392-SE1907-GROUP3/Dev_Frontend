@@ -3,6 +3,7 @@ import ConversationInterview from './ConversationInterview';
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { createVoiceCapture } from '../services/voiceCapture';
+import { createInterviewDiagnostics } from '../services/interviewDiagnostics';
 import { button, input, Heading, Panel, Notice, State } from './api/parts';
 
 export default function InterviewScreen(props) {
@@ -38,6 +39,8 @@ function Interview({ candidateId, attemptId: initialAttemptId = '', onBack, onAt
   const speechObject = useRef(''), savedPlayer = useRef(null), playRequested = useRef(false);
   const callStream = useRef(null), callActive = useRef(false), modeRef = useRef(callMode), speechPrompt = useRef('');
   const prompt = session?.prompt;
+  const diagnostic=useRef(null);
+  if(!diagnostic.current)diagnostic.current=createInterviewDiagnostics({getContext:()=>({attemptId:current.current?.attemptId,promptId:current.current?.prompt?.id,mode:'legacy'})});
   const draftKey = attemptId && prompt ? `aives-answer-${attemptId}-${prompt.id}` : '';
   const remaining = prompt?.deadline ? Math.max(0, Date.parse(prompt.deadline) - (now - offset)) : null;
   const busy = !!working || session?.busy;
@@ -71,9 +74,11 @@ function Interview({ candidateId, attemptId: initialAttemptId = '', onBack, onAt
     finally { operating.current = false; if (alive.current) setWorking(''); }
   }
   function stopSavedAudio() {
+    if(savedPlayer.current)diagnostic.current.event('audio.cancel',{source:'cache',reason:'stop_saved'});
     if (savedPlayer.current) { savedPlayer.current.sound.pause(); URL.revokeObjectURL(savedPlayer.current.url); savedPlayer.current = null; }
   }
   function replaceSpeech(blob) {
+    diagnostic.current.event('audio.legacy.loaded',{source:'server_or_cache',audioBytes:blob?.size??0,model:'unknown_server_or_cache',voiceId:'unknown_server_or_cache',speed:1,pitch:'unknown',sampleRate:'unknown',format:'wav'});
     if (speechObject.current) URL.revokeObjectURL(speechObject.current);
     speechObject.current = blob ? URL.createObjectURL(blob) : ''; setSpeechUrl(speechObject.current);
   }
@@ -254,6 +259,7 @@ function Interview({ candidateId, attemptId: initialAttemptId = '', onBack, onAt
       const url = URL.createObjectURL(blob); const sound = new Audio(url); savedPlayer.current = { sound, url };
       sound.onended = () => { URL.revokeObjectURL(url); if (savedPlayer.current?.sound === sound) savedPlayer.current = null; };
       sound.onerror = sound.onended; await sound.play();
+      diagnostic.current.event('audio.play_started',{source:'cache',model:'unknown_cached',voiceId:'unknown_cached',speed:sound.playbackRate??1,pitch:'unknown',sampleRate:'unknown',format:blob.type});
     } catch (e) { setVoiceError(e.message); }
   }
   return <section className="space-y-5">
@@ -282,7 +288,7 @@ function Interview({ candidateId, attemptId: initialAttemptId = '', onBack, onAt
           <div className={`rounded-xl bg-slate-800 p-5 text-center space-y-3 ${recording ? 'ring-2 ring-emerald-400' : ''}`}><div className="mx-auto rounded-full w-16 h-16 flex items-center justify-center bg-slate-600 text-xl">Bạn</div><h2 className="font-semibold">Thí sinh</h2><p className="text-sm text-slate-300">{recording ? 'Micro đang mở · Hãy trả lời' : 'Micro chờ đến lượt bạn'}</p><div className="h-2 rounded bg-slate-700 overflow-hidden" aria-label="Mức âm thanh micro"><div className="h-full bg-emerald-400 transition-all" style={{width:`${Math.max(3,micLevel*100)}%`}}/></div></div>
         </div>
         {prompt && <div className="space-y-2"><h2 className="font-semibold">{prompt.followupNumber ? `Câu ${prompt.sequenceNo} · Hỏi đào sâu ${prompt.followupNumber}` : `Câu chính ${prompt.sequenceNo}/${session.questionCount}`}</h2><p className="text-lg whitespace-pre-wrap">{prompt.text}</p>{prompt.deadline && <p role="timer" className={remaining <= 10000 ? 'text-red-300 font-bold' : 'text-emerald-300'}>Thời gian còn lại: {Math.ceil((remaining || 0) / 1000)} giây</p>}</div>}
-        {speechUrl && <audio ref={player} src={speechUrl} onEnded={speechEnded} onError={()=>{setCallPhase('blocked');setVoiceError('Không phát được giọng đọc. Hãy thử nghe lại câu hỏi.');}} aria-label="Giọng đọc câu hỏi AI"/>}
+        {speechUrl && <audio ref={player} src={speechUrl} onPlay={()=>diagnostic.current.event('audio.play_started',{source:'server_or_cache',model:'unknown_server_or_cache',voiceId:'unknown_server_or_cache',speed:1,pitch:'unknown',sampleRate:'unknown',format:'wav'})} onEnded={()=>{diagnostic.current.event('audio.ended',{source:'server_or_cache'});speechEnded();}} onError={()=>{diagnostic.current.event('audio.error',{source:'server_or_cache'});setCallPhase('blocked');setVoiceError('Không phát được giọng đọc. Hãy thử nghe lại câu hỏi.');}} aria-label="Giọng đọc câu hỏi AI"/>}
         <div className="rounded-lg bg-slate-800 p-4 min-h-24" aria-live="polite"><p className="text-xs text-slate-300 mb-2">Phụ đề câu trả lời trực tiếp</p><p>{liveText || (recording ? 'Bạn có thể bắt đầu nói. Hệ thống đang lắng nghe...' : 'Phụ đề sẽ hiện khi bạn trả lời bằng giọng nói.')}</p></div>
         <State error={voiceError}/>
         <div className="flex flex-wrap gap-3">
@@ -294,7 +300,7 @@ function Interview({ candidateId, attemptId: initialAttemptId = '', onBack, onAt
       </section>}
       {prompt && !callMode && <Panel title={prompt.followupNumber ? `Câu ${prompt.sequenceNo} · Hỏi đào sâu ${prompt.followupNumber}` : `Câu chính ${prompt.sequenceNo}/${session.questionCount}`}>
         <p className="whitespace-pre-wrap font-medium">{prompt.text}</p>
-        <div className="flex flex-wrap items-center gap-3"><button className={button} disabled={recording || busy || !session.aiConfigured} onClick={playSpeech}>Nghe câu hỏi</button>{speechUrl && <audio ref={player} controls src={speechUrl} aria-label="Giọng đọc câu hỏi AI" />}</div>
+        <div className="flex flex-wrap items-center gap-3"><button className={button} disabled={recording || busy || !session.aiConfigured} onClick={playSpeech}>Nghe câu hỏi</button>{speechUrl && <audio ref={player} controls src={speechUrl} onPlay={()=>diagnostic.current.event('audio.play_started',{source:'server_or_cache',model:'unknown_server_or_cache',voiceId:'unknown_server_or_cache',speed:1,pitch:'unknown',sampleRate:'unknown',format:'wav'})} onEnded={()=>diagnostic.current.event('audio.ended',{source:'server_or_cache'})} aria-label="Giọng đọc câu hỏi AI" />}</div>
         <State error={voiceError} />
         {prompt.deadline && <p role="timer" className={`font-semibold ${remaining <= 10000 ? 'text-red-700' : ''}`}>Thời gian còn lại: {Math.ceil((remaining || 0) / 1000)} giây</p>}
         <div className="flex flex-wrap gap-2">
