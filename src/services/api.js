@@ -211,6 +211,7 @@ export const api = {
   closeExam: id => request(`/exams/${id}/close`, { method: 'PATCH' }),
   attemptGrade: id => request(`/attempts/${id}/grading`),
   retryAttemptGrade: id => request(`/attempts/${id}/grading/retry`,{method:'POST'}),
+  publishAttemptGrade: (id, body) => request(`/attempts/${id}/grading/publish`,{method:'POST',body}),
   studentExams: () => request('/student/exams'),
   studentAttempts: candidateId => request(`/student/exams/${encodeURIComponent(candidateId)}/attempts`),
   startAttempt: candidateId => request(`/attempts/start/${candidateId}`, { method: 'POST' }),

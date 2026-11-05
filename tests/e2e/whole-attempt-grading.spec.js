@@ -23,25 +23,57 @@ async function history(page, gradeHandler) {
   await page.getByRole('button', { name: 'Xem lượt thi', exact: true }).click();
 }
 
-test('completed exam shows one total and criterion scores for the entire attempt', async ({ page }) => {
-  await history(page, route => route.fulfill({ json: { attemptId, status: 'COMPLETED', result } }));
+test('student sees only the official score and lecturer feedback after publication', async ({ page }) => {
+  let published = false;
+  await history(page, route => route.fulfill({ json: published
+    ? { attemptId, status: 'PUBLISHED', published: { score: 9, maxScore: 10, feedback: 'Nhận xét chính thức của giảng viên.' } }
+    : { attemptId, status: 'AWAITING_PUBLICATION', result } }));
   const grade = page.getByRole('region', { name: 'Kết quả chấm toàn bài', exact: true });
-  await expect(grade.getByText('8.25 / 10 điểm', { exact: true })).toBeVisible();
-  await expect(grade.getByText('Kiến thức toàn bài: 5 / 6', { exact: true })).toBeVisible();
-  await expect(grade.getByText('Lập luận toàn bài: 3.25 / 4', { exact: true })).toBeVisible();
-  await expect(grade.getByText(result.feedback, { exact: true })).toBeVisible();
-  await page.screenshot({ path: 'test-results/whole-attempt-grade.png', fullPage: true });
+  await expect(grade.getByText('Giảng viên chưa công bố điểm và nhận xét.')).toBeVisible();
+  await expect(grade.getByText('8.25 / 10 điểm', { exact: true })).toHaveCount(0);
+  await expect(grade.getByText(result.feedback, { exact: true })).toHaveCount(0);
+  published = true;
+  await expect(grade.getByText('9 / 10 điểm', { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(grade.getByText('Nhận xét chính thức của giảng viên.')).toBeVisible();
 });
 
-test('pending result refreshes and a failed grade can be retried without repeating the exam', async ({ page }) => {
-  let retried = false;
-  await history(page, async (route, path) => {
-    if (path.endsWith('/retry')) { retried = true; return route.fulfill({ json: { attemptId, status: 'PENDING' } }); }
-    return route.fulfill({ json: retried ? { attemptId, status: 'COMPLETED', result } : { attemptId, status: 'FAILED', error: 'AI chưa chấm xong bài thi.' } });
+test('lecturer reviews AI draft, enters a score and feedback, then publishes it', async ({ page }) => {
+  const teacher = { ...student, role: 'LECTURER', email: 'lecturer@example.com' };
+  const teacherToken = [Buffer.from('{}').toString('base64url'), Buffer.from(JSON.stringify({
+    sub: teacher.id, ...teacher, exp: Math.floor(Date.now() / 1000) + 3600
+  })).toString('base64url'), 'sig'].join('.');
+  let publication;
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/auth/login') return route.fulfill({ json: { code: 200, data: { authenticate: true, token: teacherToken } } });
+    if (path === `/api/v1/users/${teacher.id}`) return route.fulfill({ json: { code: 200, data: teacher } });
+    if (path === '/api/v1/exams') return route.fulfill({ json: [{ id: 'exam1', title: 'Thi vấn đáp đã hoàn tất', status: 'CLOSED' }] });
+    if (path === '/api/v1/exams/exam1/monitor') return route.fulfill({ json: {
+      title: 'Thi vấn đáp đã hoàn tất', examStatus: 'CLOSED', serverNow: new Date().toISOString(),
+      candidates: [{ id: candidateId, fullName: student.fullName, email: student.email, status: 'COMPLETED',
+        attempts: [{ id: attemptId, attemptNo: 1, status: 'COMPLETED', completedQuestions: 2, questionCount: 2 }] }]
+    } });
+    if (path.endsWith('/transcript')) return route.fulfill({ json: { status: 'COMPLETED', turns: [] } });
+    if (path.endsWith('/grading/publish')) {
+      publication = route.request().postDataJSON();
+      return route.fulfill({ json: { status: 'COMPLETED' } });
+    }
+    if (path.endsWith('/grading')) return route.fulfill({ json: {
+      attemptId, status: 'COMPLETED', maxScore: 10, result, published: publication && { ...publication, maxScore: 10 }
+    } });
+    return route.fulfill({ json: [] });
   });
-  await expect(page.getByRole('alert')).toContainText('AI chưa chấm xong bài thi.');
-  await page.getByRole('button', { name: 'Thử chấm lại', exact: true }).click();
-  await expect(page.getByText('8.25 / 10 điểm', { exact: true })).toBeVisible();
-  expect(retried).toBe(true);
-  await expect(page.getByRole('button', { name: 'Bắt đầu lượt thi', exact: true })).toHaveCount(0);
+  await page.goto('/');
+  await page.getByPlaceholder('lecturer@example.com').fill(teacher.email);
+  await page.getByPlaceholder('Nhập mật khẩu').fill('test123456');
+  await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  await page.getByRole('button', { name: 'Giám sát ca thi', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Xem giám sát', exact: true }).click();
+  await page.getByRole('button', { name: 'Xem hội thoại lượt 1', exact: true }).click();
+  await expect(page.getByText('Điểm AI đề xuất')).toBeVisible();
+  await page.getByLabel('Điểm chốt').fill('9');
+  await page.getByLabel('Nhận xét của giảng viên').fill('Nhận xét chính thức của giảng viên.');
+  await page.getByRole('button', { name: 'Chốt và công bố điểm' }).click();
+  await expect(page.getByText('9 / 10 điểm', { exact: true })).toBeVisible();
+  expect(publication).toEqual({ score: 9, feedback: 'Nhận xét chính thức của giảng viên.' });
 });

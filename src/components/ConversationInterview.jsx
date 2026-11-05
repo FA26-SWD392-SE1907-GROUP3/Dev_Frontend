@@ -292,7 +292,7 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
         </form>
       </Panel>}
       {(pending.current||session.needsContinuation)&&session.status==='IN_PROGRESS'&&<button className={button} disabled={busy||session.busy} onClick={resume}>Thử tiếp tục câu trả lời đã lưu</button>}
-      {session.status==='COMPLETED'&&<><Notice>Đã hoàn thành lượt thi. AI chấm toàn bài theo rubric của kỳ thi.</Notice><AttemptGrade attemptId={attemptId}/></>}
+      {session.status==='COMPLETED'&&<><Notice>Đã hoàn thành lượt thi.</Notice><AttemptGrade attemptId={attemptId}/></>}
       {session.status==='ABORTED'&&<Notice>Lượt thi đã dừng. Hội thoại đã nộp vẫn được lưu.</Notice>}
       {(transcriptOpen||session.status!=='IN_PROGRESS')&&<section className="call-transcript-drawer" aria-label="Hội thoại đã lưu">
         <div className="call-transcript-heading"><h2>Hội thoại đã lưu</h2>{session.status==='IN_PROGRESS'&&<button type="button" onClick={()=>setTranscriptOpen(false)}>Đóng hội thoại</button>}</div>
