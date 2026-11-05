@@ -89,6 +89,10 @@ export default function ConversationInterview({ candidateId, attemptId: initialI
     voice.current?.stop();
     voice.current = createCloudVoice({
       api, socketUrl: interviewSocketUrl, getAttemptId:()=>state.current?.attemptId,
+      getRemainingMs:()=>{
+        const deadline=state.current?.prompt?.deadline;
+        return deadline?Date.parse(deadline)-(Date.now()-clockOffset.current):Infinity;
+      },
       onDegraded:message=>{if(mounted.current){setVoiceError(message);setCaptionDelay(true);}},
       onSpoken:text=>{if(mounted.current)setSpoken(text);},
       onVoiceActivity:value=>{if(mounted.current)setVoiceActivity(value);},

@@ -224,6 +224,7 @@ test('repair cancels a stale transcription and keeps both audio parts when the s
   s.players.at(-1).end();await flush();s.ready();
   for(let i=0;i<4;i++)s.frame(6000);for(let i=0;i<35;i++)s.frame();await flush();
   const first=s.calls.find(row=>row[0]==='transcribe');assert.ok(first);
+  s.frame(6000);assert.equal(first[2].signal.aborted,false);
   s.frame(6000);assert.equal(first[2].signal.aborted,true);s.releaseFile('Câu cũ bị cắt');await flush();assert.deepEqual(s.answers,[]);
   for(let i=0;i<3;i++)s.frame(6000);for(let i=0;i<35;i++)s.frame();await flush();
   const second=s.calls.filter(row=>row[0]==='transcribe').at(-1);assert.ok(second[1].size>first[1].size);
@@ -235,6 +236,61 @@ test('repair retains recognized words and switches to text if final file transcr
   for(let i=0;i<4;i++)s.frame(6000);for(let i=0;i<35;i++)s.frame();await flush();
   assert.deepEqual(s.answers,[]);assert.equal(s.fallbacks.length,1);assert.equal(s.utterances.length,0);
   assert.ok(s.captions.includes('Phần em đã nói.'));s.engine.stop();
+});
+test('recording supplies text before the turn ends when live recognition is unavailable',async()=>{
+  const s=setup({repair:true,sttFailure:true,fileText:'Câu trả lời đang được ghi nhận.'});
+  await s.engine.start();s.engine.present('Câu hỏi?',{promptId:'question'});await flush();
+  s.players.at(-1).end();await flush();s.tick(650);
+  for(let i=0;i<31;i++)s.frame(6000);
+  await flush();
+  assert.equal(s.captions.at(-1),'Câu trả lời đang được ghi nhận.');
+  assert.deepEqual(s.answers,[]);
+  assert.equal(s.calls.filter(c=>c[0]==='transcribe').length,1);
+  s.engine.stop();
+});
+test('a blank final transcription keeps words already recognized live',async()=>{
+  const s=setup({repair:true,fileText:' '});
+  await s.engine.start();s.engine.present('Câu hỏi?',{promptId:'question'});await flush();
+  s.players.at(-1).end();await flush();s.ready();
+  const socket=s.sockets.at(-1);
+  socket.send=()=>{};
+  socket.event({type:'final',itemId:'student',text:'Em đã trả lời câu hỏi.'});
+  for(let i=0;i<4;i++)s.frame(6000);
+  for(let i=0;i<35;i++)s.frame();
+  await flush();
+  assert.deepEqual(s.answers,['Em đã trả lời câu hỏi.']);
+  s.engine.stop();
+});
+test('isolated noise does not reset the silence countdown or cancel final transcription',async()=>{
+  const s=setup({repair:true,holdFile:true});
+  await s.engine.start();s.engine.present('Câu hỏi?',{promptId:'question'});await flush();
+  s.players.at(-1).end();await flush();s.ready();
+  for(let i=0;i<4;i++)s.frame(6000);
+  for(let i=0;i<35;i++){
+    if(i%10===0)s.frame(6000);
+    s.frame();
+  }
+  const final=s.calls.find(c=>c[0]==='transcribe');assert.ok(final);
+  s.frame(6000);s.frame();
+  assert.equal(final[2].signal.aborted,false);
+  s.releaseFile('Em đã giải thích đầy đủ.');await flush();
+  assert.deepEqual(s.answers,['Em đã giải thích đầy đủ.']);
+  s.engine.stop();
+});
+test('a slow final transcription cannot block a turn that already has live text',async()=>{
+  const s=setup({repair:true,holdFile:true});
+  await s.engine.start();s.engine.present('Câu hỏi?',{promptId:'question'});await flush();
+  s.players.at(-1).end();await flush();s.ready();
+  const socket=s.sockets.at(-1);
+  socket.send=()=>{};
+  socket.event({type:'final',itemId:'student',text:'Em đã trả lời câu này.'});
+  for(let i=0;i<4;i++)s.frame(6000);
+  for(let i=0;i<35;i++)s.frame();
+  assert.deepEqual(s.answers,[]);
+  s.tick(2500);await flush();
+  assert.deepEqual(s.answers,['Em đã trả lời câu này.']);
+  assert.equal(s.calls.find(c=>c[0]==='transcribe')[2].signal.aborted,true);
+  s.engine.stop();
 });
 test('repair configuration defaults to a 3.5 second pause and supports an explicit rollback switch',()=>{
   const profile=readVoiceRepairConfig({sessionStorage:{getItem:()=>null}});

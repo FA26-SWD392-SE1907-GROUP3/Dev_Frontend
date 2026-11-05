@@ -5,6 +5,7 @@ import { readVoiceRepairConfig } from './voiceRepairConfig.js';
 // Audio goes only to the authenticated Spring API. The OpenAI key never reaches the browser.
 export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()=>{}, onAnswer=()=>{},
   onPhase=()=>{}, onListening=()=>{}, onFallback=()=>{}, onDegraded=()=>{}, onSpoken=()=>{}, onVoiceActivity=()=>{},
+  getRemainingMs=()=>Infinity,
   env=globalThis, silenceMs, reminderMs=8000, repairs=readVoiceRepairConfig(env) }) {
   silenceMs??=repairs.enabled?repairs.silenceMs:1500;
   const threshold=repairs.enabled?repairs.threshold:.018;
@@ -14,6 +15,9 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
   let reminder, finalTimer, connectTimer, audioTimer, echoTimer, echoWindow=false, committing=false, finalResolve, reminded=false;
   let questionText='', speechKind='', prefix='';
   let liveUnavailable=false;
+  let previewRequest=null, previewVoicedMs=0, previewText='';
+  const resumeConfirmationMs=200;
+  let speechRunMs=0, resumedFrames=[];
   let uncommittedBytes=0, uncommittedVoiceMs=0;
   const items=new Map();
   const diagnostic=createInterviewDiagnostics({env,getContext:()=>({attemptId:getAttemptId(),promptId,mode:'cloud',generation})});
@@ -44,6 +48,8 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
   }
   function pause(){
     generation++;paused=true;speaking=false;protectedSpeech=false;committing=false;
+    speechRunMs=0;resumedFrames=[];
+    previewRequest?.abort();previewRequest=null;
     onVoiceActivity(false);
     clearTimer(echoTimer);echoWindow=false;
     clearTimer(reminder);clearTimer(finalTimer);finalResolve?.();finalResolve=null;
@@ -82,7 +88,7 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
     if(!repairs.enabled){useBrowser(message);return;}
     liveUnavailable=true;disconnect();
     diagnostic.event('stt.recording_fallback',{source:'live',transcriptChars:transcript.length});
-    onDegraded('Phụ đề trực tiếp tạm gián đoạn. Micro vẫn ghi âm; câu trả lời sẽ được nhận dạng từ bản ghi khi em ngừng nói.');
+    onDegraded('Phụ đề trực tiếp tạm gián đoạn. Micro vẫn ghi âm và chữ sẽ cập nhật từ bản ghi.');
   }
   function armReminder(){
     clearTimer(reminder);
@@ -112,6 +118,7 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
       resultFinal:data.type==='final',sinceCommitMs:commitAt===null?-1:diagnostic.now()-commitAt,
       fromSpeechEndMs:speechEndedAt===null?-1:diagnostic.now()-speechEndedAt});
     if(!recognized||echo(recognized))return;
+    if(repairs.enabled&&!speaking&&text.length<previewText.length)return;
     transcript=text;
     if(speaking&&!protectedSpeech){
       diagnostic.event('audio.barge_in',{segmentId,transcriptChars:transcript.length});
@@ -156,14 +163,42 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
     let offset=44;for(const part of samples){new Uint8Array(buffer,offset,part.byteLength).set(new Uint8Array(part));offset+=part.byteLength;}
     return new env.Blob([buffer],{type:'audio/wav'});
   }
+  async function previewRecording(){
+    if(!repairs.enabled||previewRequest||committing||echoWindow||voicedMs<350)return;
+    const nearDeadline=getRemainingMs()<=12000;
+    const missingCaptions=liveUnavailable||!transcript.trim();
+    if(!missingCaptions&&!nearDeadline)return;
+    const newVoiceMs=voicedMs-previewVoicedMs;
+    if(previewVoicedMs ? newVoiceMs<(nearDeadline?1500:5000) : voicedMs<3000&&quietMs<700)return;
+    const version=generation;
+    const controller=new env.AbortController();
+    const before=transcript;
+    previewRequest=controller;previewVoicedMs=voicedMs;
+    try{
+      const result=await api.transcribeConversation(getAttemptId(),promptId,wav(frames),{signal:controller.signal});
+      if(!active||paused||muted||version!==generation||controller.signal.aborted)return;
+      const text=result.text?.trim().slice(0,12000);
+      if(text&&(transcript===before||text.length>transcript.length)){
+        previewText=text;
+        transcript=text;
+        onTranscript(text);
+      }
+    }catch{
+      // The full recording still has its own transcription attempt at the end of the turn.
+    }finally{
+      if(previewRequest===controller)previewRequest=null;
+    }
+  }
   async function finishTurn(){
     if(!active||paused||speaking||muted||committing||voicedMs<350)return;
-    committing=true;clearTimer(reminder);const version=generation;
+    committing=true;resumedFrames=[];clearTimer(reminder);const version=generation;
     commitAt=diagnostic.now();
     diagnostic.event('vad.commit',{reason:'silence',voicedMs,quietMs,silenceMs,transcriptChars:transcript.length,
       fromSpeechEndMs:speechEndedAt===null?-1:commitAt-speechEndedAt,ready,threshold});
     try{
-      if(repairs.enabled)commitCaptions();
+      if(repairs.enabled){
+        try{commitCaptions();}catch{liveFailed('Không chốt được phụ đề trực tiếp.');}
+      }
       if(!repairs.enabled&&ready&&socket?.readyState===1){
         await new Promise(resolve=>{finalResolve=resolve;socket.send(JSON.stringify({type:'commit'}));finalTimer=env.setTimeout(resolve,2500);});
         clearTimer(finalTimer);finalResolve=null;
@@ -171,12 +206,36 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
       if(!active||paused||version!==generation)return;
       if((repairs.enabled||!transcript.trim())&&frames.length){
         diagnostic.event('stt.file_fallback',{source:'live',audioBytes:frames.reduce((sum,part)=>sum+part.byteLength,0)});
-        phase('thinking');request=new env.AbortController();
-        const result=await api.transcribeConversation(getAttemptId(),promptId,wav(frames),{signal:request.signal});
+        phase('thinking');
+        const controller=new env.AbortController();
+        request=controller;
+        const transcription=api.transcribeConversation(getAttemptId(),promptId,wav(frames),{signal:controller.signal});
+        let result;
+        if(repairs.enabled&&transcript.trim()){
+          // Give the complete recording a chance to improve the transcript without blocking
+          // the conversation until the full request timeout or exam deadline.
+          const waitMs=Math.max(0,Math.min(2500,getRemainingMs()-500));
+          let timer;
+          try{
+            result=await Promise.race([transcription,new Promise(resolve=>{
+              timer=env.setTimeout(()=>resolve(null),waitMs);
+            })]);
+            if(result===null)controller.abort();
+          }finally{clearTimer(timer);}
+        }else{
+          result=await transcription;
+        }
         if(!active||paused||version!==generation)return;
-        transcript=result.text?.trim().slice(0,12000)||'';onTranscript(transcript);
+        const fullText=result?.text?.trim().slice(0,12000);
+        if(fullText){transcript=fullText;onTranscript(transcript);}
       }
-      if(!transcript.trim()){committing=false;voicedMs=quietMs=0;listen();return;}
+      if(!transcript.trim()){
+        if(repairs.enabled){
+          failToText('Micro đã thu âm nhưng chưa nhận dạng được lời nói. Em có thể nhập câu trả lời cho lượt này.');
+          return;
+        }
+        committing=false;voicedMs=quietMs=0;listen();return;
+      }
       diagnostic.event('answer.auto_submit',{reason:'silence',textChars:transcript.length,sinceCommitMs:diagnostic.now()-commitAt});
       const text=transcript;pause();onAnswer(text);
     }catch{if(active&&!paused&&version===generation)useBrowser('Chưa chốt được nhận dạng. Nội dung đã nghe vẫn được giữ.');}
@@ -186,20 +245,27 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
     const samples=new Int16Array(buffer);
     const rms=Math.sqrt(samples.reduce((sum,value)=>sum+(value/32768)**2,0)/Math.max(1,samples.length));
     const duration=samples.length/24;
+    const voiced=rms>=threshold;
+    speechRunMs=voiced?speechRunMs+duration:0;
     if(committing&&repairs.enabled){
-      if(rms<threshold)return;
+      if(!voiced){resumedFrames=[];return;}
+      if(speechRunMs<resumeConfirmationMs){resumedFrames.push(buffer.slice(0));return;}
       // The student resumed while file STT was pending. Keep all audio and cancel only that stale result.
+      frames.push(...resumedFrames);resumedFrames=[];
+      voicedMs+=speechRunMs-duration;
       generation++;request?.abort();request=null;committing=false;quietMs=0;phase('listening');
       diagnostic.event('vad.resumed',{reason:'speech_during_transcription'});
     }
     windowMs+=duration;minRms=Math.min(minRms,rms);maxRms=Math.max(maxRms,rms);
     if(windowMs>=1000){diagnostic.event('vad.window',{windowMs,minRms,maxRms,rms,voicedMs,quietMs,threshold,speaking,muted,sampleRate:24000});windowMs=0;minRms=1;maxRms=0;}
-    if(rms>=threshold)speechEndedAt=diagnostic.now();
+    const confirmedSpeech=voiced&&(!repairs.enabled||speechRunMs>=resumeConfirmationMs);
+    if(confirmedSpeech)speechEndedAt=diagnostic.now();
     // Echo cancellation is requested from the browser; text matching also guards speaker echo.
     if(!speaking){
       if(frames.reduce((sum,p)=>sum+p.byteLength,0)<20*1024*1024)frames.push(buffer.slice(0));
-      if(rms>=threshold){if(!voicedMs)onVoiceActivity(true);voicedMs+=duration;quietMs=0;clearTimer(reminder);}
-      else if(voicedMs>=350)quietMs+=duration;
+      if(voiced){if(!voicedMs)onVoiceActivity(true);voicedMs+=duration;clearTimer(reminder);}
+      if(confirmedSpeech)quietMs=0;
+      else if(voicedMs>=350&&!voiced)quietMs+=duration;
     }
     if(ready&&socket?.readyState===1){
       if(socket.bufferedAmount>96000){liveFailed('Mạng quá chậm để truyền micro trực tiếp.');return;}
@@ -214,7 +280,10 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
         }
       }catch{liveFailed('Không truyền được âm thanh trực tiếp.');}
     }else if(!liveUnavailable&&queuedBytes+buffer.byteLength<=480000){pendingFrames.push(buffer.slice(0));queuedBytes+=buffer.byteLength;}
-    if(!speaking&&quietMs>=silenceMs)void finishTurn();
+    if(!speaking){
+      if(!voiced&&quietMs>=silenceMs)void finishTurn();
+      else void previewRecording();
+    }
   }
   async function say(kind,text,next=null){
     if(!active)return;
@@ -286,6 +355,7 @@ export function createCloudVoice({ api, socketUrl, getAttemptId, onTranscript=()
       questionText=text;
       if(fallback){if(!preserveTranscript)browserCarry='';fallback.present(text,{introduction,preserveTranscript});return;}
       pause();paused=false;frames=preserveTranscript&&repairs.enabled?frames:[];items.clear();voicedMs=quietMs=0;reminded=false;liveUnavailable=false;
+      previewVoicedMs=0;previewText='';
       speechEndedAt=null;commitAt=null;windowMs=0;minRms=1;maxRms=0;
       prefix=preserveTranscript?transcript:'';
       if(!preserveTranscript){transcript='';onTranscript('');}
